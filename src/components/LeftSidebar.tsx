@@ -12,6 +12,8 @@ import { useApp } from "./AppFrame";
 import { SunMark } from "./SunMark";
 import { IconButton, Segmented, cx, relTime, toast } from "./ui";
 import { readHref } from "@/lib/routes";
+import { InstallAppButton } from "./InstallApp";
+import { SyncBadge } from "./SyncPanel";
 
 export function LeftSidebar({ paperId, onCollapse }: { paperId?: string; onCollapse?: () => void }) {
   const router = useRouter();
@@ -161,6 +163,8 @@ export function LeftSidebar({ paperId, onCollapse }: { paperId?: string; onColla
       </div>
 
       <div className="space-y-0.5 border-t border-line px-3 py-3 text-sm">
+        <SyncBadge />
+        <InstallAppButton />
         <button type="button" onClick={() => setApp({ settingsOpen: true })} className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted">
           <Settings size={17} className="text-ink-soft" /> 設定
         </button>

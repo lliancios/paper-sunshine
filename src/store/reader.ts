@@ -35,6 +35,15 @@ export interface InkSettings {
   finger: boolean;
 }
 
+/** Sentences a citation chip pointed at: outlined on both sides until dismissed. */
+export interface FocusMark {
+  sids: string[];
+  page: number;
+  label: string; // "p.71 左欄第 12 行"
+  back: { top: number; left: number } | null; // where the reader was before jumping
+  at: number;
+}
+
 interface ReaderState {
   viewMode: ViewMode;
   zoom: number | "fit";
@@ -62,7 +71,10 @@ interface ReaderState {
   showInk: boolean;
   showAuto: boolean;
   panelWidth: number;
-  scrollToPage: ((page: number, y?: number) => void) | null;
+  scrollToPage: ((page: number, y?: number, x?: number) => void) | null;
+  getScrollPos: (() => { top: number; left: number }) | null;
+  setScrollPos: ((pos: { top: number; left: number }) => void) | null;
+  focus: FocusMark | null;
   chatDraft: string | null;
   set: (patch: Partial<ReaderState>) => void;
 }
@@ -102,6 +114,9 @@ export const useReader = create<ReaderState>((set) => ({
     }
   })(),
   scrollToPage: null,
+  getScrollPos: null,
+  setScrollPos: null,
+  focus: null,
   chatDraft: null,
   set: (patch) => set(patch),
 }));

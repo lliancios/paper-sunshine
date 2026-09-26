@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { health, setPasscode } from "@/lib/api";
 import type { HealthResponse } from "@/lib/apiTypes";
 import { resumeAll } from "@/lib/pipeline";
+import { startSync } from "@/lib/sync";
 import { useSettings } from "@/lib/settings";
 import { BUILD_ID, installRecovery } from "@/lib/recover";
 import { APP_VERSION } from "@/lib/version";
@@ -16,6 +17,8 @@ interface AppState {
   settingsOpen: boolean;
   health: HealthResponse | null;
   newVersion: boolean;
+  /** Tab to show when the settings dialog opens (e.g. "sync"). */
+  settingsTab?: string;
   set: (p: Partial<AppState>) => void;
 }
 export const useApp = create<AppState>((set) => ({ settingsOpen: false, health: null, newVersion: false, set: (p) => set(p) }));
@@ -37,6 +40,13 @@ function useTheme() {
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, [theme]);
+}
+
+/** After the passcode check: start cross-device sync (first pull), then resume background jobs. */
+async function afterAuth(r: HealthResponse | null) {
+  if (r && !r.authorized) return;
+  await startSync(r?.sync ?? null).catch(() => {});
+  if (r?.authorized) void resumeAll();
 }
 
 export function AppFrame({ children }: { children: ReactNode }) {
@@ -70,9 +80,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
   }, [check]);
 
   useEffect(() => {
-    void check().then((r) => {
-      if (r && r.authorized) void resumeAll();
-    });
+    void check().then((r) => afterAuth(r));
   }, [check]);
 
   // Installed-app support: offline shell + resume background jobs when the network returns.
@@ -84,9 +92,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
     const sync = () => setOffline(!navigator.onLine);
     const online = () => {
       sync();
-      void check().then((r) => {
-        if (r && r.authorized) void resumeAll();
-      });
+      void check().then((r) => afterAuth(r));
     };
     sync();
     window.addEventListener("online", online);
@@ -102,7 +108,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      <SettingsDialog open={settingsOpen} onClose={() => set({ settingsOpen: false })} />
+      <SettingsDialog open={settingsOpen} onClose={() => set({ settingsOpen: false, settingsTab: undefined })} />
       <Toasts />
       {newVersion && !offline && (
         <button
@@ -128,7 +134,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
               setPasscode(pass);
               const r = await check();
               setChecking(false);
-              if (r?.authorized) void resumeAll();
+              if (r?.authorized) void afterAuth(r);
             }}
           >
             <div className="mb-4 flex items-center gap-3">

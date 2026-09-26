@@ -35,6 +35,12 @@ export function getPaperPdf(paperId: string): Promise<PDFDocumentProxy> {
   let p = docCache.get(paperId);
   if (!p) {
     p = db.files.get(paperId).then(async (f) => {
+      if (!f) {
+        // Synced from another device: fetch the PDF from the cloud on first use.
+        const { ensurePaperLocal } = await import("./sync");
+        await ensurePaperLocal(paperId);
+        f = await db.files.get(paperId);
+      }
       if (!f) throw new Error("找不到 PDF 檔案");
       return openPdf(await f.blob.arrayBuffer());
     });

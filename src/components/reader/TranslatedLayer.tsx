@@ -107,6 +107,7 @@ function TSentence({ sid }: { sid: string }) {
   const { model, trans, cats, hlBySid, exBySid, settings, catColor } = useReaderData();
   const hover = useReader((s) => s.hoverSid === sid);
   const flashAt = useReader((s) => (s.flash && (s.flash.sid === sid || s.flash.sids?.includes(sid)) ? s.flash.at : 0));
+  const focused = useReader((s) => !!s.focus?.sids.includes(sid));
   const showAuto = useReader((s) => s.showAuto);
   const tr = trans.get(sid);
   const text = tr?.t ?? "";
@@ -194,7 +195,7 @@ function TSentence({ sid }: { sid: string }) {
     <span
       ref={spanRef}
       data-sent={sid}
-      className={cx("ps-sent", hover && "is-hover")}
+      className={cx("ps-sent", hover && "is-hover", focused && "is-focus")}
       style={{ ...style, userSelect: fallback ? "none" : undefined }}
     >
       {segments.map((sg) => {

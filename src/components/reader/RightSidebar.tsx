@@ -505,7 +505,7 @@ function HighlightItem({ h }: { h: Highlight }) {
           <button type="button" className="hover:text-ink" onClick={() => copyText(quoteWithCitation(h.text, data.paper, page), "已複製引用")}>
             複製引用
           </button>
-          <button type="button" className="hover:text-red-600" onClick={() => softDelete("highlights", h.id)}>
+          <button type="button" title="刪除" className="hover:text-red-600" onClick={() => softDelete("highlights", h.id)}>
             <Trash2 size={13} />
           </button>
         </div>
@@ -559,7 +559,7 @@ function ExplanationsPanel() {
             <button type="button" className="hover:text-ink" onClick={() => copyText(e.answer)}>
               複製
             </button>
-            <button type="button" className="hover:text-red-600" onClick={() => softDelete("explanations", e.id)}>
+            <button type="button" title="刪除" className="hover:text-red-600" onClick={() => softDelete("explanations", e.id)}>
               刪除
             </button>
           </div>

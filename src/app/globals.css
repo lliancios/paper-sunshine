@@ -133,6 +133,56 @@ button:disabled {
 .ps-flash {
   animation: ps-flash 1.6s ease-out 1;
 }
+/* citation focus: stays until dismissed, distinct from highlights */
+.ps-focus {
+  outline: 2px solid #f97316;
+  outline-offset: 1px;
+  background: rgba(249, 115, 22, 0.1);
+  border-radius: 3px;
+  animation: ps-focus-in 1.4s ease-out 1;
+}
+@keyframes ps-focus-in {
+  0%,
+  35% {
+    background: rgba(249, 115, 22, 0.42);
+  }
+  100% {
+    background: rgba(249, 115, 22, 0.1);
+  }
+}
+.ps-sent.is-focus {
+  box-shadow: 0 0 0 2px #f97316;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: ps-focus-in 1.4s ease-out 1;
+}
+.ps-focus-tag {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px 2px 8px;
+  border-radius: 999px;
+  background: #f97316;
+  color: #fff;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
+  pointer-events: auto;
+}
+.ps-focus-tag button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #fff;
+}
+.ps-focus-tag button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
 @keyframes ps-flash {
   0%,
   30% {

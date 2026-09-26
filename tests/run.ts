@@ -5,6 +5,7 @@ import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { extractDocModel, type PdfDoc } from "../src/engine/extract";
 import { splitSentences } from "../src/engine/sentences";
 import { rectsForRange } from "../src/engine/geometry";
+import { lineOf } from "../src/engine/lines";
 import { makeFixture } from "./make-fixture";
 import type { DocModel } from "../src/engine/types";
 
@@ -92,6 +93,15 @@ const REAL: Record<string, (m: DocModel) => void> = {
     const all = m.order.map((id) => m.sentences[id].text);
     check("pps: footnote not merged into body sentence", all.some((t) => t.startsWith("Thus, a key question of interest to managers")));
     check("pps: author bio is its own sentence", all.some((t) => t.startsWith("Goutam Challagalla is Brady Family Professor")));
+    // Checked by hand against the printed page 70.
+    const at = (prefix: string) => {
+      const id = m.order.find((i) => m.sentences[i].text.startsWith(prefix));
+      const p = id ? lineOf(m, id) : null;
+      return p ? `${p.col}${p.line}` : "none";
+    };
+    check("pps: 'Thus, a key question' is left column line 22", at("Thus, a key question of interest") === "L22", at("Thus, a key question of interest"));
+    check("pps: 'We argue that the locus' is right column line 3", at("We argue that the locus") === "R3", at("We argue that the locus"));
+    check("pps: 'For example, suppliers such as IBM' is left column line 8", at("For example, suppliers such as IBM") === "L8", at("For example, suppliers such as IBM"));
   },
   "cc.pdf": (m) => {
     check("cc: printed page offset 75 (JSTOR cover page)", m.info.pageOffset === 75, m.info.pageOffset);
@@ -104,6 +114,26 @@ const REAL: Record<string, (m: DocModel) => void> = {
   },
 };
 
+/** Line numbers never go backwards inside one column of one page, and two-column pages report both columns. */
+function linesTest(name: string, m: DocModel) {
+  let back = 0;
+  const cols = new Set<string>();
+  let prev: { b: string; page: number; col: string | null; line: number } | null = null;
+  for (const id of m.order) {
+    const s = m.sentences[id];
+    if (s.kind !== "para") continue;
+    const pos = lineOf(m, id);
+    if (!pos) continue;
+    cols.add(String(pos.col));
+    // Within one paragraph block on one page, sentence starts only move down the column
+    // (a sentence starting at the bottom of the previous column or page belongs to the next block).
+    if (prev && prev.b === s.b && prev.page === pos.page && prev.col === pos.col && pos.line < prev.line) back++;
+    prev = { b: s.b, page: pos.page, col: pos.col, line: pos.line };
+  }
+  check(`${name}: line numbers increase within each paragraph`, back === 0, back);
+  check(`${name}: left and right columns detected`, cols.has("L") && cols.has("R"), [...cols]);
+}
+
 async function extraFixtures() {
   const dir = "tests/fixtures";
   if (!existsSync(dir)) return;
@@ -114,6 +144,7 @@ async function extraFixtures() {
     const cjkSpace = m.order.filter((id) => m.sentences[id].kind === "para" && /[\u4e00-\u9fff] [\u4e00-\u9fff]/.test(m.sentences[id].text)).length;
     check(`${f}: no spaces between CJK characters`, cjkSpace === 0, cjkSpace);
     REAL[f]?.(m);
+    if (f !== "zh-note.pdf") linesTest(f, m);
     const kinds: Record<string, number> = {};
     for (const id of m.order) kinds[m.sentences[id].kind] = (kinds[m.sentences[id].kind] ?? 0) + 1;
     console.log(`  ${f}: ${m.pages.length} pages, ${m.order.length} sentences ${JSON.stringify(kinds)} in ${Date.now() - t0} ms`);

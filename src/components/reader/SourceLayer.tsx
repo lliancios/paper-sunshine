@@ -140,6 +140,15 @@ function HoverMarks({ index, scale }: { index: number; scale: number }) {
   const { model } = useReaderData();
   const hoverSid = useReader((s) => s.hoverSid);
   const flash = useReader((s) => s.flash);
+  const focus = useReader((s) => s.focus);
+  const focusRects = useMemo(
+    () =>
+      (focus?.sids ?? []).flatMap((id) => {
+        const s = model.sentences[id];
+        return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
+      }),
+    [focus, model, index],
+  );
   const rects = useMemo(() => {
     const s = hoverSid ? model.sentences[hoverSid] : null;
     return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
@@ -156,6 +165,9 @@ function HoverMarks({ index, scale }: { index: number; scale: number }) {
     <div className="ps-marks">
       {rects.map((r, i) => (
         <div key={`h${i}`} className={cx("ps-hover", i === 0 && "is-first")} style={box(r)} />
+      ))}
+      {focusRects.map((r, i) => (
+        <div key={`c${focus?.at}-${i}`} className="ps-focus" style={box(r)} />
       ))}
       {flashRects.map((r, i) => (
         <div key={`f${flash?.at}-${i}`} className="ps-flash" style={box(r)} />

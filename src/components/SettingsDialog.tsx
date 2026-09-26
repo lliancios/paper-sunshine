@@ -20,11 +20,13 @@ import { DEFAULT_SETTINGS, models, saveSettings, useSettings } from "@/lib/setti
 import { APP_VERSION } from "@/lib/version";
 import { useApp } from "./AppFrame";
 import { Badge, Button, Modal, Segmented, cx, toast } from "./ui";
+import { SyncTab } from "./SyncPanel";
 
-type Tab = "general" | "models" | "prompt" | "research" | "categories" | "journals" | "data";
+type Tab = "general" | "sync" | "models" | "prompt" | "research" | "categories" | "journals" | "data";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "general", label: "一般" },
+  { key: "sync", label: "跨裝置同步" },
   { key: "models", label: "模型與連線" },
   { key: "prompt", label: "翻譯角色提示詞" },
   { key: "research", label: "研究脈絡" },
@@ -38,6 +40,7 @@ const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outl
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const saved = useSettings();
   const health = useApp((s) => s.health);
+  const wantTab = useApp((s) => s.settingsTab);
   const [tab, setTab] = useState<Tab>("general");
   const [draft, setDraft] = useState<AppSettings>(saved);
   const [pass, setPass] = useState("");
@@ -46,6 +49,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     if (open) {
       setDraft(saved);
       setPass(getPasscode());
+      if (wantTab && TABS.some((t) => t.key === wantTab)) setTab(wantTab as Tab);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -127,6 +131,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               </Field>
             </>
           )}
+
+          {tab === "sync" && <SyncTab />}
 
           {tab === "models" && <ModelsTab draft={draft} up={up} />}
 

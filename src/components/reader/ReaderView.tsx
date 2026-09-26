@@ -42,6 +42,7 @@ export function ReaderView({ paperId }: { paperId: string }) {
       regionMode: false,
       onepagerOpen: false,
       inkMode: false,
+      focus: null,
       currentPage: 0,
     });
   }, [paperId]);
@@ -64,7 +65,7 @@ export function ReaderView({ paperId }: { paperId: string }) {
   if (!data)
     return (
       <Centered>
-        <Loader2 className="mr-2 animate-spin" size={18} /> {job?.stage === "parsing" ? "解析 PDF 版面中…" : "載入中…"}
+        <Loader2 className="mr-2 animate-spin" size={18} /> {job?.note || (job?.stage === "parsing" ? "解析 PDF 版面中…" : "載入中…")}
       </Centered>
     );
   return (
@@ -152,7 +153,7 @@ function ReaderShell({ data }: { data: ReaderData }) {
       }
       if (e.key === "Escape") {
         clearSelection();
-        st.set({ selection: null, explain: null, translatePop: null, highlightPop: null, figure: null, regionMode: false });
+        st.set({ selection: null, explain: null, translatePop: null, highlightPop: null, figure: null, regionMode: false, focus: null });
         return;
       }
       const sel = st.selection;

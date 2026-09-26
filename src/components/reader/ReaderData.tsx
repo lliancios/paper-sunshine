@@ -7,6 +7,8 @@ import { HIGHLIGHT_COLORS } from "@/lib/defaults";
 import { useSettings } from "@/lib/settings";
 import { useReader } from "@/store/reader";
 import type { DocModel, Piece } from "@/engine/types";
+import { lineLabel, lineOf } from "@/engine/lines";
+import { printedPage } from "@/lib/citation";
 
 export interface Trans {
   t: string;
@@ -142,13 +144,28 @@ export function scrollToSentence(model: DocModel, sid: string, off = 0) {
   st.set({ flash: { sid, at: Date.now() } });
 }
 
-/** Scrolls to the first of several sentences and flashes all of them. */
-export function scrollToSentences(model: DocModel, sids: string[]) {
+/**
+ * Jumps to cited sentences and keeps them outlined on both sides (until the
+ * reader dismisses it), with a "p.71 左欄第 12 行" tag and a way back.
+ */
+export function scrollToSentences(model: DocModel, sids: string[], paper?: Paper) {
   const ok = sids.filter((s) => model.sentences[s]);
   if (!ok.length) return;
-  const loc = locate(model, ok[0], 0);
-  if (!loc) return;
+  const first = model.sentences[ok[0]];
+  const pc = first.pieces[0];
+  if (!pc) return;
   const st = useReader.getState();
-  st.scrollToPage?.(loc.page, Math.max(0, loc.y - 40));
-  st.set({ flash: { sid: ok[0], sids: ok, at: Date.now() } });
+  const pos = lineOf(model, ok[0]);
+  const page = pos?.page ?? pc.p;
+  const label = `p.${printedPage(paper, model, page) ?? page + 1}${pos ? ` ${lineLabel(pos)}` : ""}${ok.length > 1 ? `（共 ${ok.length} 句）` : ""}`;
+  const back = st.focus?.back ?? st.getScrollPos?.() ?? null;
+  st.scrollToPage?.(page, Math.max(0, pc.r[1] - 30), pc.r[0]);
+  st.set({ focus: { sids: ok, page, label, back, at: Date.now() }, flash: { sid: ok[0], sids: ok, at: Date.now() } });
+}
+
+/** Clears the citation focus; optionally returns to where the reader was. */
+export function clearFocus(goBack = false) {
+  const st = useReader.getState();
+  if (goBack && st.focus?.back) st.setScrollPos?.(st.focus.back);
+  st.set({ focus: null });
 }

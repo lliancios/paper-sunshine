@@ -4,6 +4,7 @@ import { Copy, Download, Loader2, Maximize2, PanelRight, RefreshCw, ScrollText, 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { lineLabel, lineOf } from "@/engine/lines";
 import type { DocModel } from "@/engine/types";
 import { friendlyError } from "@/lib/api";
 import { download, printedPage, safeFileName } from "@/lib/citation";
@@ -44,21 +45,35 @@ function groups(model: DocModel, raw: string): { page: number; sids: string[] }[
   return out;
 }
 
-/** Markdown with citations turned into chip links (#cite-1.2,1.4). */
+/** Markdown with citations turned into chip links: [p.71 左欄 12 行](#cite-1.2,1.4). */
 export function citeLinks(md: string, paper: Paper, model: DocModel) {
   const rep = (_: string, inner: string) => {
     const gs = groups(model, inner);
     if (!gs.length) return "";
-    return " " + gs.map((g) => `[p.${pageLabel(paper, model, g.page)}](#cite-${g.sids.join(",")})`).join(" ");
+    return (
+      " " +
+      gs
+        .map((g) => {
+          const pos = lineOf(model, g.sids[0]);
+          return `[p.${pageLabel(paper, model, g.page)}${pos ? ` ${lineLabel(pos, true)}` : ""}](#cite-${g.sids.join(",")})`;
+        })
+        .join(" ")
+    );
   };
   return md.replace(CITE_DOUBLE, rep).replace(CITE_SINGLE, rep);
 }
 
-/** Plain-text citations for copy/download: (p. 70, 72). */
+/** Plain-text citations for copy/download: (p. 70 左欄第 12 行; p. 72 右欄第 3 行). */
 export function citePlain(md: string, paper: Paper, model: DocModel) {
   const rep = (_: string, inner: string) => {
     const gs = groups(model, inner);
-    return gs.length ? `(p. ${gs.map((g) => pageLabel(paper, model, g.page)).join(", ")})` : "";
+    if (!gs.length) return "";
+    return `(${gs
+      .map((g) => {
+        const pos = lineOf(model, g.sids[0]);
+        return `p. ${pageLabel(paper, model, g.page)}${pos ? ` ${lineLabel(pos)}` : ""}`;
+      })
+      .join("; ")})`;
   };
   return md.replace(CITE_DOUBLE, rep).replace(CITE_SINGLE, rep);
 }
@@ -69,6 +84,16 @@ const inflight = new Set<string>();
 export function CitedMarkdown({ md, className, onCite }: { md: string; className?: string; onCite?: (sids: string[]) => void }) {
   const data = useReaderData();
   const linked = useMemo(() => citeLinks(md, data.paper, data.model), [md, data.paper, data.model]);
+  // Hover preview: the cited sentence(s) in the original and in translation.
+  const preview = (sids: string[]) =>
+    sids
+      .slice(0, 2)
+      .map((sid) => {
+        const en = data.model.sentences[sid]?.text ?? "";
+        const zh = data.trans.get(sid)?.t;
+        return `${en.length > 220 ? `${en.slice(0, 220)}…` : en}${zh ? `\n→ ${zh.length > 120 ? `${zh.slice(0, 120)}…` : zh}` : ""}`;
+      })
+      .join("\n\n") + (sids.length > 2 ? `\n\n…以及另外 ${sids.length - 2} 句` : "");
   return (
     <div className={cx("ps-md", className)}>
       <ReactMarkdown
@@ -80,9 +105,9 @@ export function CitedMarkdown({ md, className, onCite }: { md: string; className
               return (
                 <button
                   type="button"
-                  title={`跳到原句（${sids.length} 句）`}
+                  title={preview(sids)}
                   className="ps-cite"
-                  onClick={() => (onCite ? onCite(sids) : scrollToSentences(data.model, sids))}
+                  onClick={() => (onCite ? onCite(sids) : scrollToSentences(data.model, sids, data.paper))}
                 >
                   {children}
                 </button>
@@ -187,7 +212,7 @@ function OnePagerBody({ variant }: { variant: "panel" | "modal" }) {
           onCite={(sids) => {
             // In the enlarged view, dock the summary to the sidebar so it stays visible.
             if (variant === "modal") set({ onepagerOpen: false, rightTab: "onepager" });
-            setTimeout(() => scrollToSentences(data.model, sids), variant === "modal" ? 80 : 0);
+            setTimeout(() => scrollToSentences(data.model, sids, data.paper), variant === "modal" ? 80 : 0);
           }}
         />
         {rec?.model && live === null && <div className="mt-4 text-right text-[11px] text-ink-faint">由 {rec.model} 產生</div>}

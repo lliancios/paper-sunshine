@@ -2,7 +2,7 @@
 
 AI 論文閱讀器。以 Moonlight 的功能為基底，補上它做不到的一件事：**原文與版面翻譯兩側都能劃線、懸浮對照、解釋，而且即時同步。**
 
-> 目前版本：**v0.3.0**。版本規則見文末，變更見 [CHANGELOG.md](CHANGELOG.md)。
+> 目前版本：**v0.4.0**。版本規則見文末，變更見 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 核心差異：句子身分證
 
@@ -30,7 +30,8 @@ Moonlight 的版面翻譯是另外產生一份 PDF，中文側只是一張圖，
 | 相關論文 | OpenAlex 引用網路加關鍵詞搜尋，期刊白名單（以 ISSN 比對，名稱備援），Gemini 依你的研究脈絡重新排序並寫出推薦理由；有免費全文的一鍵下載開啟 |
 | 引用 | 劃線自動帶印刷頁碼，一鍵複製 APA 文中引用，例如 “…” (Sonnentag, 2003, p. 519)；匯出 RIS（含劃線筆記）給 Zotero，再從 Zotero 插入 Word |
 | 手寫 | Apple Pencil、手指或滑鼠直接在頁面上寫字、畫線；筆、螢光筆、橡皮擦，壓力感應；筆跡跟著頁面縮放，兩側對照顯示 |
-| 裝置 | 電腦、iPad、手機皆可用；「加入主畫面」後就是全螢幕 App，已匯入的論文離線可讀；深色模式 |
+| 裝置 | 電腦、iPad、手機皆可用；「加入主畫面」或「安裝 App」後就是全螢幕 App，已匯入的論文離線可讀；深色模式 |
+| 跨裝置同步 | 用你自己的免費 Supabase：文獻庫、PDF、譯文、高亮、劃線、筆記、討論、手寫、速覽、設定在電腦、iPad、手機之間同步；離線照常使用，連線後自動補上 |
 
 ## 部署到 Vercel（第一次約 10 分鐘）
 
@@ -52,6 +53,18 @@ Moonlight 的版面翻譯是另外產生一份 PDF，中文側只是一張圖，
 4. iPad／手機：用 Safari 打開網址 → 分享 → **加入主畫面**。之後從主畫面開啟就是全螢幕 App，沒網路時也能讀已匯入的論文。
 
 之後每次 push 到 `main`，Vercel 會自動重新部署。沒有設定 `GEMINI_API_KEY` 時會進入示範模式（假譯文），方便先看介面。
+
+## 跨裝置同步
+
+同步用你自己的 Supabase 免費專案（500 MB 資料庫、1 GB 檔案空間，約可放數百篇論文），資料只在你的帳號裡。設定一次約 5 分鐘：
+
+1. **建立專案**：到 [supabase.com](https://supabase.com) 用 GitHub 登入 → New project。名稱 `paper-sunshine`，資料庫密碼隨意，Region 選 **Northeast Asia (Tokyo)**。
+2. **建資料表**：左側 **SQL Editor** → New query → 貼上 [`supabase/schema.sql`](supabase/schema.sql) 全部內容 → **Run**（可以重複執行）。
+3. **關掉確認信**：**Authentication** → Sign In / Providers → **Email** → 關掉 **Confirm email** → Save。（之後想更安全，可以在建立好自己的帳號後，把 **Allow new users to sign up** 也關掉。）
+4. **加到 Vercel**：Supabase 上方 **Connect**（或 Project Settings → API）複製 **Project URL** 與 **anon public／Publishable key**，在 Vercel → Settings → Environment Variables 新增 `SUPABASE_URL` 與 `SUPABASE_ANON_KEY`，然後重新部署一次（Deployments → 最新一筆 → Redeploy）。
+5. **登入**：電腦上打開 Paper Sunshine → 設定 → **跨裝置同步** → **建立帳號**，現有的論文與 PDF 會自動上傳。iPad、iPhone 在主畫面的 App 裡用同一組帳號**登入**即可。
+
+同步的方式：每次修改會記在本機，連線時上傳；其他裝置開啟、切回前景、或每 90 秒會下載新變更（有開著的話幾乎即時）。同一筆資料兩邊都改時，以最後修改的為準；AI 產生的譯文與高亮會合併，不會重複花額度。PDF 在第一次打開時才下載，設定裡也有「下載全部 PDF 供離線閱讀」。
 
 ## 模型與額度
 
@@ -78,7 +91,8 @@ npm run typecheck
 ```
 src/engine/        PDF 版面解析：行 → 段落區塊 → 閱讀順序 → 句子（ID、字元幾何）
 src/lib/pipeline   背景流程：解析 → 書目 → 導讀（術語表、全文高亮）→ 批次翻譯 → 相關論文 → 一頁速覽
-src/lib/db         IndexedDB（Dexie）；使用者資料都有 updatedAt 與刪除標記，可直接同步
+src/lib/db         IndexedDB（Dexie）；使用者資料都有 updatedAt 與刪除標記
+src/lib/sync       跨裝置同步（Supabase）：變更佇列、推送、拉取、PDF 按需下載
 src/lib/server/llm 模型層：Gemini 與 OpenAI 相容服務，額度用完自動改用備援模型
 src/app/api/       伺服器端：AI（翻譯、導讀、解釋、討論、圖片、一頁速覽）、OpenAlex 與 Crossref（書目、引用、推薦）、診斷
 src/components/reader/  閱讀器：SourceLayer（原文）、TranslatedLayer（版面翻譯）、Popovers、側邊欄
@@ -88,7 +102,6 @@ API 金鑰只存在伺服器端，瀏覽器只保存 `APP_PASSCODE`。
 
 ## 路線圖
 
-- **v0.4.0**：跨裝置同步（Supabase：PDF、劃線、筆記、手寫、譯文在電腦、iPad、手機之間同步）
 - **v0.5.0**：論文寫作區（章節、從文獻庫插入引用、APA 參考文獻、匯出 Word 不跑版、AI 助手）
 - 之後：Zotero API 一鍵同步、引用卡片（點文中引用直接看摘要）、片語級跨語對齊
 

@@ -4,13 +4,14 @@
 // them aligned is just copying scrollTop/scrollLeft from the pane you are
 // touching to the other one. Zoom in and the right pane still shows the same
 // corner of the same page as the left pane.
+import { MapPin, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Side } from "@/engine/types";
 import { acquireRender, blit, samplePaperColors } from "@/lib/pdf";
 import { setFocus } from "@/lib/pipeline";
 import { useReader } from "@/store/reader";
 import { cx } from "../ui";
-import { useReaderData } from "./ReaderData";
+import { clearFocus, useReaderData } from "./ReaderData";
 import { SourceLayer } from "./SourceLayer";
 import { TranslatedLayer } from "./TranslatedLayer";
 import { InkLayer } from "./InkLayer";
@@ -96,7 +97,7 @@ export function PagesViewport() {
   // Scroll API used by panels, outline, search and highlights.
   useEffect(() => {
     set({
-      scrollToPage: (page: number, y?: number) => {
+      scrollToPage: (page: number, y?: number, x?: number) => {
         const i = panes.current[leader.current] ? leader.current : 0;
         const el = panes.current[i];
         const row = el?.querySelector<HTMLElement>(`[data-row="${page}"]`);
@@ -104,10 +105,21 @@ export function PagesViewport() {
         leader.current = i;
         const s = useReader.getState().scale;
         const top = row.offsetTop + (y !== undefined ? y * s - el.clientHeight * 0.3 : -12);
-        el.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        // When zoomed in, also bring the right column into view.
+        const left = x !== undefined && el.scrollWidth > el.clientWidth ? row.offsetLeft + x * s - el.clientWidth * 0.2 : el.scrollLeft;
+        el.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: "smooth" });
+      },
+      getScrollPos: () => {
+        const el = panes.current[leader.current] ?? panes.current[0];
+        return { top: el?.scrollTop ?? 0, left: el?.scrollLeft ?? 0 };
+      },
+      setScrollPos: (pos) => {
+        const i = panes.current[leader.current] ? leader.current : 0;
+        leader.current = i;
+        panes.current[i]?.scrollTo({ top: pos.top, left: pos.left, behavior: "smooth" });
       },
     });
-    return () => set({ scrollToPage: null });
+    return () => set({ scrollToPage: null, getScrollPos: null, setScrollPos: null });
   }, [set]);
 
   // Ctrl/⌘ + wheel zoom on desktop.
@@ -198,6 +210,33 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
       <canvas ref={canvasRef} className="absolute inset-0" style={{ width: w, height: h }} />
       {near && (side === "src" ? <SourceLayer index={index} scale={scale} /> : <TranslatedLayer index={index} scale={scale} colors={colors} />)}
       {near && <InkLayer index={index} side={side} />}
+      {near && <FocusTag index={index} scale={scale} side={side} />}
     </div>
   );
 });
+
+/** "p.71 左欄第 12 行" tag above the first cited line, with a way back. Shown in the first pane only. */
+function FocusTag({ index, scale, side }: { index: number; scale: number; side: Side }) {
+  const { model } = useReaderData();
+  const focus = useReader((s) => (s.focus && s.focus.page === index ? s.focus : null));
+  const firstPane = useReader((s) => s.viewMode !== "both" || side === "src");
+  if (!focus || !firstPane) return null;
+  const pc = model.sentences[focus.sids[0]]?.pieces.find((p) => p.p === index);
+  if (!pc) return null;
+  const top = Math.max(4, pc.r[1] * scale - 30);
+  const left = Math.max(4, pc.r[0] * scale - 4);
+  return (
+    <div className="ps-focus-tag" style={{ top, left }} data-popover>
+      <MapPin size={12} />
+      <span className="px-1 font-medium">{focus.label}</span>
+      {focus.back && (
+        <button type="button" title="回到跳轉前閱讀的位置" onClick={() => clearFocus(true)}>
+          <Undo2 size={12} /> 回原處
+        </button>
+      )}
+      <button type="button" title="取消標示（Esc）" onClick={() => clearFocus(false)}>
+        <X size={12} />
+      </button>
+    </div>
+  );
+}

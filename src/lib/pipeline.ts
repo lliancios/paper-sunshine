@@ -13,6 +13,7 @@ import type { Guide, Overview, RelatedItem, TranslateBlock, WorkMeta } from "./a
 import { type AppSettings, type JobStage, type Paper, type TransRec, db, resetTranslations, uid } from "./db";
 import { openPdf } from "./pdf";
 import { getSettings, models } from "./settings";
+import { ensurePaperLocal, syncReady } from "./sync";
 
 let focus: { paperId: string; page: number } | null = null;
 export function setFocus(paperId: string, page: number) {
@@ -224,8 +225,16 @@ async function process(paperId: string) {
   await setJob(paperId, "parsing");
 
   let model = (await db.models.get(paperId))?.model;
+  if ((!model || !(await db.files.get(paperId))) && syncReady()) {
+    // A paper synced from another device: bring its PDF and parsed layout here first.
+    await setJob(paperId, "parsing", { note: "從雲端下載中…" });
+    await ensurePaperLocal(paperId);
+    model = (await db.models.get(paperId))?.model;
+    await setJob(paperId, "parsing", { note: "" });
+  }
   // Re-parse papers from an older engine when no annotation depends on their sentence ids.
-  if (model && (model.ev ?? 1) < ENGINE_VERSION) {
+  // With sync on, another device may hold annotations we have not pulled yet, so leave it to the user.
+  if (model && (model.ev ?? 1) < ENGINE_VERSION && !syncReady()) {
     const used = (await db.highlights.where("paperId").equals(paperId).count()) + (await db.explanations.where("paperId").equals(paperId).count());
     if (!used) {
       await resetTranslations(paperId, { model: true });

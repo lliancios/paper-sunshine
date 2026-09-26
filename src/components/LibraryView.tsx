@@ -33,6 +33,9 @@ import { SunMark } from "./SunMark";
 import { Badge, Button, IconButton, Modal, Stars, cx, toast } from "./ui";
 import { SavedPanel } from "./WorkPanels";
 import { readHref } from "@/lib/routes";
+import { useSync } from "@/lib/sync";
+import { InstallAppButton } from "./InstallApp";
+import { SyncBadge } from "./SyncPanel";
 
 const PAGE_SIZE = 20;
 
@@ -59,6 +62,7 @@ export function LibraryView() {
   const [newFolder, setNewFolder] = useState<string | null>(null);
 
   const papers = useLiveQuery(() => db.papers.filter((p) => !p.deleted).toArray(), []);
+  useLocalFiles();
   const folders = useLiveQuery(() => db.folders.filter((f) => !f.deleted).toArray(), []);
   const jobs = useLiveQuery(() => db.jobs.toArray(), []);
   const jobMap = useMemo(() => new Map((jobs ?? []).map((j) => [j.paperId, j])), [jobs]);
@@ -164,6 +168,8 @@ export function LibraryView() {
           </div>
         </nav>
         <div className="mt-auto space-y-0.5 border-t border-line px-3 py-3 text-sm">
+          <SyncBadge />
+          <InstallAppButton className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-muted" />
           <NavBtn icon={<Settings size={17} />} label="設定" onClick={() => setApp({ settingsOpen: true })} />
           <NavBtn icon={dark ? <Sun size={17} /> : <Moon size={17} />} label={dark ? "淺色模式" : "深色模式"} onClick={() => saveSettings({ theme: dark ? "light" : "dark" })} />
         </div>
@@ -440,8 +446,17 @@ function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: (
   );
 }
 
+/** Paper ids whose PDF is stored on this device (others may be waiting in the cloud). */
+let localIds: Set<string> | null = null;
+function useLocalFiles() {
+  const configured = useSync((s) => s.configured);
+  const ids = useLiveQuery(async () => (configured ? ((await db.files.toCollection().primaryKeys()) as string[]) : null), [configured]);
+  localIds = ids ? new Set(ids) : null;
+}
+
 function statusOf(p: Paper, job?: JobRec) {
   if (!p.hasFile) return <Badge tone="amber">需要 PDF</Badge>;
+  if (localIds && !localIds.has(p.id)) return <Badge>在雲端，打開時下載</Badge>;
   if (!job) return null;
   if (job.stage === "done") return null;
   if (job.stage === "error")
