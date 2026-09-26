@@ -1,0 +1,28 @@
+# Creates a git tag and GitHub release (vX.Y.Z) whenever package.json's version
+# changes on main, using the matching CHANGELOG.md section as release notes.
+name: release-tag
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+permissions:
+  contents: write
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          if git rev-parse -q --verify "refs/tags/$v" >/dev/null; then
+            echo "$v already tagged"; exit 0
+          fi
+          awk -v ver="## $v" 'index($0, ver)==1 {on=1; next} /^## v/ && on {exit} on' CHANGELOG.md > notes.md
+          git tag "$v"
+          git push origin "$v"
+          gh release create "$v" --title "Paper Sunshine $v" --notes-file notes.md
