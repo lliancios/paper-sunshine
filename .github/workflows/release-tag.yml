@@ -4,7 +4,8 @@ name: release-tag
 on:
   push:
     branches: [main]
-    paths: [package.json]
+    paths: [package.json, .github/workflows/release-tag.yml]
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
