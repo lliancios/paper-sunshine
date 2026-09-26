@@ -32,6 +32,7 @@ import { useApp } from "./AppFrame";
 import { SunMark } from "./SunMark";
 import { Badge, Button, IconButton, Modal, Stars, cx, toast } from "./ui";
 import { SavedPanel } from "./WorkPanels";
+import { readHref } from "@/lib/routes";
 
 const PAGE_SIZE = 20;
 
@@ -480,7 +481,7 @@ function Row({
 }) {
   const router = useRouter();
   const attachRef = useRef<HTMLInputElement>(null);
-  const open = () => (p.hasFile ? router.push(`/read/${p.id}`) : p.doi ? window.open(`https://doi.org/${p.doi}`, "_blank") : attachRef.current?.click());
+  const open = () => (p.hasFile ? router.push(readHref(p.id)) : p.doi ? window.open(`https://doi.org/${p.doi}`, "_blank") : attachRef.current?.click());
   return (
     <tr
       className="group cursor-pointer border-b border-line hover:bg-soft"
@@ -550,7 +551,7 @@ function Card({ p, job, update }: { p: Paper; job?: JobRec; update: (id: string,
   return (
     <div
       className="cursor-pointer rounded-2xl border border-line bg-bg p-4 transition-shadow hover:shadow-md"
-      onClick={() => (p.hasFile ? router.push(`/read/${p.id}`) : p.doi && window.open(`https://doi.org/${p.doi}`, "_blank"))}
+      onClick={() => (p.hasFile ? router.push(readHref(p.id)) : p.doi && window.open(`https://doi.org/${p.doi}`, "_blank"))}
     >
       <div className="mb-2 flex items-center justify-between">
         {statusOf(p, job) ?? <span />}

@@ -145,8 +145,11 @@ function HoverMarks({ index, scale }: { index: number; scale: number }) {
     return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
   }, [hoverSid, model, index]);
   const flashRects = useMemo(() => {
-    const s = flash?.sid ? model.sentences[flash.sid] : null;
-    return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
+    const ids = flash?.sids ?? (flash?.sid ? [flash.sid] : []);
+    return ids.flatMap((id) => {
+      const s = model.sentences[id];
+      return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
+    });
   }, [flash, model, index]);
   const box = (r: Rect) => ({ left: r[0] * scale - 1, top: r[1] * scale, width: (r[2] - r[0]) * scale + 2, height: (r[3] - r[1]) * scale });
   return (

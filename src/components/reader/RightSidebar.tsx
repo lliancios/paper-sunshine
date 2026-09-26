@@ -9,6 +9,7 @@ import {
   NotebookPen,
   PanelBottom,
   PanelRight,
+  ScrollText,
   Send,
   Sparkles,
   Telescope,
@@ -24,12 +25,16 @@ import { type Highlight, db, uid } from "@/lib/db";
 import { HIGHLIGHT_COLORS } from "@/lib/defaults";
 import { models } from "@/lib/settings";
 import { type RightTab, useReader } from "@/store/reader";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { WorkCard } from "../WorkPanels";
 import { Badge, Button, IconButton, Markdown, Segmented, copyText, cx, relTime, toast } from "../ui";
 import { fullText, overviewText, softDelete } from "./actions";
+import { CitedMarkdown, OnePagerPanel } from "./OnePager";
+import { paperLines } from "@/lib/pipeline";
 import { hlColor, scrollToSentence, useReaderData } from "./ReaderData";
 
 const RAIL: { key: RightTab; label: string; icon: React.ReactNode }[] = [
+  { key: "onepager", label: "一頁速覽", icon: <ScrollText size={19} /> },
   { key: "ai", label: "與 AI 一起", icon: <WandSparkles size={19} /> },
   { key: "quiz", label: "測驗", icon: <Gamepad2 size={19} /> },
   { key: "highlights", label: "高亮", icon: <Highlighter size={19} /> },
@@ -86,10 +91,42 @@ export function RightPanel() {
   const tab = useReader((s) => s.rightTab);
   const bottom = useReader((s) => s.sidebarBottom);
   const set = useReader((s) => s.set);
+  const width = useReader((s) => s.panelWidth);
   if (!tab) return null;
   const label = RAIL.find((r) => r.key === tab)?.label;
+  // Drag the left edge to resize (wider is handy for the one-page summary's tables).
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = width;
+    const move = (ev: PointerEvent) => {
+      const w = Math.min(Math.max(300, w0 + (x0 - ev.clientX)), Math.min(900, window.innerWidth * 0.7));
+      set({ panelWidth: Math.round(w) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        localStorage.setItem("ps-panel-width", String(useReader.getState().panelWidth));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   return (
-    <div className={cx("flex shrink-0 flex-col bg-bg", bottom ? "h-[42vh] w-full border-t border-line" : "h-full w-[380px] max-w-[92vw] border-l border-line")}>
+    <div
+      className={cx("relative flex shrink-0 flex-col bg-bg", bottom ? "h-[42vh] w-full border-t border-line" : "h-full max-w-[92vw] border-l border-line")}
+      style={bottom ? undefined : { width }}
+    >
+      {!bottom && (
+        <div
+          title="拖曳調整寬度"
+          onPointerDown={startResize}
+          className="absolute -left-1 top-0 z-10 hidden h-full w-2 cursor-col-resize hover:bg-accent/30 md:block"
+        />
+      )}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
         <div className="font-semibold">{label}</div>
         <IconButton title="關閉" onClick={() => set({ rightTab: null })}>
@@ -97,13 +134,16 @@ export function RightPanel() {
         </IconButton>
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-        {tab === "ai" && <AIPanel />}
-        {tab === "quiz" && <QuizPanel />}
-        {tab === "highlights" && <HighlightsPanel mode="highlights" />}
-        {tab === "comments" && <HighlightsPanel mode="comments" />}
-        {tab === "explanations" && <ExplanationsPanel />}
-        {tab === "notes" && <NotesPanel />}
-        {tab === "citations" && <CitationsPanel />}
+        <ErrorBoundary label={label} compact resetKey={tab}>
+          {tab === "onepager" && <OnePagerPanel />}
+          {tab === "ai" && <AIPanel />}
+          {tab === "quiz" && <QuizPanel />}
+          {tab === "highlights" && <HighlightsPanel mode="highlights" />}
+          {tab === "comments" && <HighlightsPanel mode="comments" />}
+          {tab === "explanations" && <ExplanationsPanel />}
+          {tab === "notes" && <NotesPanel />}
+          {tab === "citations" && <CitationsPanel />}
+        </ErrorBoundary>
       </div>
     </div>
   );
@@ -248,7 +288,7 @@ function ChatView() {
           task: "chat",
           targetLanguage: data.settings.targetLanguage,
           paperTitle: data.paper.title,
-          paperText: fullText(data.model),
+          paperText: paperLines(data.model, 150_000),
           overview: overviewText(data.overview),
           researchContext: data.settings.researchContext,
           messages: history,
@@ -270,7 +310,7 @@ function ChatView() {
       <div className="scroll-thin flex-1 space-y-3 overflow-y-auto p-4">
         {!msgs?.length && streaming === null && (
           <div className="space-y-2 text-sm text-ink-soft">
-            <p>針對這篇論文提問，例如：</p>
+            <p>什麼都可以問：這篇論文的內容、研究方法、寫作，或一般問題。出自論文的地方會附頁碼，點了跳到原句。例如：</p>
             {["這篇的研究限制是什麼？", "這篇的構念可以怎麼借用到服務品牌的主動行為？", "作者怎麼測量主要變數？"].map((q) => (
               <button key={q} type="button" onClick={() => setInput(q)} className="block rounded-lg border border-line px-3 py-1.5 text-left hover:bg-muted">
                 {q}
@@ -280,10 +320,10 @@ function ChatView() {
         )}
         {(msgs ?? []).map((m) => (
           <div key={m.id} className={cx("rounded-2xl px-3.5 py-2.5 text-sm", m.role === "user" ? "ml-8 bg-accent-soft" : "mr-2 bg-muted")}>
-            {m.role === "user" ? <div className="whitespace-pre-wrap">{m.text}</div> : <Markdown>{m.text}</Markdown>}
+            {m.role === "user" ? <div className="whitespace-pre-wrap">{m.text}</div> : <CitedMarkdown md={String(m.text ?? "")} />}
           </div>
         ))}
-        {streaming !== null && <div className="mr-2 rounded-2xl bg-muted px-3.5 py-2.5 text-sm">{streaming ? <Markdown>{streaming}</Markdown> : <Loader2 size={16} className="animate-spin" />}</div>}
+        {streaming !== null && <div className="mr-2 rounded-2xl bg-muted px-3.5 py-2.5 text-sm">{streaming ? <CitedMarkdown md={streaming} /> : <Loader2 size={16} className="animate-spin" />}</div>}
         <div ref={endRef} />
       </div>
       <div className="border-t border-line p-3">
@@ -298,7 +338,7 @@ function ChatView() {
               }
             }}
             rows={2}
-            placeholder="問問這篇論文…（Enter 送出）"
+            placeholder="問任何問題…（Enter 送出，Shift+Enter 換行）"
             className="max-h-40 flex-1 resize-none bg-transparent text-sm outline-none"
           />
           <IconButton title="送出" onClick={send} disabled={!input.trim() || streaming !== null}>

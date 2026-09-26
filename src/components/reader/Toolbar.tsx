@@ -8,6 +8,7 @@ import {
   Loader2,
   Minus,
   PanelLeftOpen,
+  PenLine,
   Plus,
   RefreshCw,
   ScanSearch,
@@ -19,7 +20,8 @@ import { useMemo, useState } from "react";
 import { apaReference, download, inText, printedPage, safeFileName, toMarkdown, toRis } from "@/lib/citation";
 import { db, resetTranslations } from "@/lib/db";
 import { COLOR_SCHEMES } from "@/lib/defaults";
-import { enqueue, lookupMeta, refreshRelated, unpause } from "@/lib/pipeline";
+import { enqueue, lookupMeta, refreshRelated, regenerateHighlights, unpause } from "@/lib/pipeline";
+import { friendlyError } from "@/lib/api";
 import { ENGINE_VERSION } from "@/engine/layout";
 import { saveSettings } from "@/lib/settings";
 import { useReader } from "@/store/reader";
@@ -50,7 +52,7 @@ export function Toolbar() {
     r.set({ outlineOpen: false, infoOpen: false, searchOpen: false, [k]: !r[k] });
 
   return (
-    <div className="relative z-30 flex h-14 shrink-0 items-center gap-1 whitespace-nowrap border-b border-line bg-bg px-2" onMouseLeave={close}>
+    <div className="@container relative z-30 flex h-14 shrink-0 items-center gap-1 whitespace-nowrap border-b border-line bg-bg px-2" onMouseLeave={close}>
       {!r.leftOpen && (
         <IconButton title="展開側欄" onClick={() => r.set({ leftOpen: true })}>
           <PanelLeftOpen size={18} />
@@ -66,7 +68,7 @@ export function Toolbar() {
         <Search size={18} />
       </IconButton>
 
-      <div className="relative ml-1 hidden sm:block">
+      <div className="relative ml-1 hidden @min-[560px]:block">
         <button type="button" onClick={() => setZoomOpen((v) => !v)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-sm">
           {r.zoom === "fit" ? "符合寬度" : `${pct}%`} <ChevronDown size={14} />
         </button>
@@ -87,7 +89,7 @@ export function Toolbar() {
       <IconButton title="放大" onClick={() => r.set({ zoom: Math.min(4, Math.round(r.scale * 1.15 * 100) / 100) })}>
         <Plus size={18} />
       </IconButton>
-      <div className="mx-1 hidden h-9 items-center rounded-lg border border-line px-2.5 text-sm tabular-nums md:inline-flex">
+      <div className="mx-1 hidden h-9 items-center rounded-lg border border-line px-2.5 text-sm tabular-nums @min-[640px]:inline-flex">
         <input
           className="w-8 bg-transparent text-right outline-none"
           value={r.currentPage + 1}
@@ -106,11 +108,11 @@ export function Toolbar() {
 
       <button
         type="button"
-        onClick={() => r.set({ onepagerOpen: true })}
-        className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-accent-strong hover:bg-accent-soft"
+        onClick={() => r.set({ rightTab: r.rightTab === "onepager" ? null : "onepager" })}
+        className={cx("inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-accent-strong hover:bg-accent-soft", r.rightTab === "onepager" && "bg-accent-soft")}
         title="一頁速覽：3 分鐘掌握研究問題、方法、發現"
       >
-        <ScrollText size={16} /> <span className="hidden xl:inline">速覽</span>
+        <ScrollText size={16} /> <span className="hidden @min-[1240px]:inline">速覽</span>
       </button>
       <div className="relative">
         <button
@@ -118,20 +120,31 @@ export function Toolbar() {
           onClick={() => setAutoOpen((v) => !v)}
           className={cx("inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm", r.showAuto ? "bg-accent-soft text-accent-strong" : "hover:bg-muted")}
         >
-          <Highlighter size={16} /> <span className="hidden xl:inline">自動高亮</span>
+          <Highlighter size={16} /> <span className="hidden @min-[1240px]:inline">自動高亮</span>
         </button>
         {autoOpen && <AutoHighlightMenu onClose={close} />}
       </div>
       <button
         type="button"
-        onClick={() => r.set({ regionMode: !r.regionMode, figure: null })}
+        onClick={() => r.set({ regionMode: !r.regionMode, figure: null, inkMode: false })}
         className={cx("inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm", r.regionMode ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300" : "hover:bg-muted")}
         title="框選圖表，讓 AI 解讀"
       >
-        <ScanSearch size={16} /> <span className="hidden xl:inline">{r.regionMode ? "框選圖表中…" : "圖片說明"}</span>
+        <ScanSearch size={16} /> <span className="hidden @min-[1240px]:inline">{r.regionMode ? "框選圖表中…" : "圖片說明"}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          window.getSelection()?.removeAllRanges();
+          r.set({ inkMode: !r.inkMode, showInk: true, regionMode: false, selection: null, highlightPop: null, hoverSid: null });
+        }}
+        className={cx("inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm", r.inkMode ? "bg-accent-soft text-accent-strong" : "hover:bg-muted")}
+        title="手寫：Apple Pencil、手指或滑鼠直接在頁面上寫字、畫線"
+      >
+        <PenLine size={16} /> <span className="hidden @min-[1240px]:inline">手寫</span>
       </button>
       <Segmented
-        className="ml-1 hidden md:inline-flex"
+        className="ml-1 hidden @min-[720px]:inline-flex"
         value={r.viewMode}
         onChange={(v) => r.set({ viewMode: v })}
         options={[
@@ -141,10 +154,10 @@ export function Toolbar() {
         ]}
       />
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         {job && job.stage !== "done" && <JobChip />}
         {mockCount > 0 && (
-          <span className="hidden rounded-full bg-amber-100 px-2.5 py-1 text-xs text-amber-800 xl:inline dark:bg-amber-950 dark:text-amber-300" title="伺服器沒有 Gemini key，目前是示範譯文">
+          <span className="hidden rounded-full bg-amber-100 px-2.5 py-1 text-xs text-amber-800 @min-[1100px]:inline dark:bg-amber-950 dark:text-amber-300" title="伺服器沒有 Gemini key，目前是示範譯文">
             示範譯文
           </span>
         )}
@@ -182,7 +195,10 @@ function JobChip() {
   const [open, setOpen] = useState(false);
   const paused = job.stage === "paused";
   const bad = job.stage === "error";
-  const label = paused
+  const offline = paused && !job.pausedUntil;
+  const label = offline
+    ? "離線中"
+    : paused
     ? "今日額度已用完"
     : bad
       ? "部分失敗"
@@ -196,7 +212,7 @@ function JobChip() {
         onClick={() => setOpen((v) => !v)}
         className={cx(
           "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs",
-          bad || paused ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-muted text-ink-soft",
+          offline ? "bg-muted text-ink-soft" : bad || paused ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-muted text-ink-soft",
         )}
       >
         {!bad && !paused && <Loader2 size={12} className="animate-spin" />}
@@ -204,7 +220,7 @@ function JobChip() {
         {job.note && !paused && <span className="max-w-40 truncate text-amber-700 dark:text-amber-300">・{job.note}</span>}
       </button>
       {open && (
-        <div className="absolute right-0 top-9 z-40 w-80 rounded-xl border border-line bg-bg p-3 text-xs shadow-[var(--shadow)]">
+        <div className="absolute right-0 top-9 z-40 w-80 whitespace-normal rounded-xl border border-line bg-bg p-3 text-xs shadow-[var(--shadow)]">
           <div className="mb-2 font-medium">{label}</div>
           {(job.note || job.error) && <p className="mb-2 text-ink-soft">{job.note || job.error}</p>}
           {paused && job.pausedUntil && <p className="mb-2 text-ink-faint">預計 {new Date(job.pausedUntil).toLocaleString("zh-TW", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" })} 自動繼續。</p>}
@@ -241,12 +257,24 @@ function AutoHighlightMenu({ onClose }: { onClose: () => void }) {
     for (const c of data.cats.values()) m.set(c, (m.get(c) ?? 0) + 1);
     return m;
   }, [data.cats]);
+  const [busy, setBusy] = useState(false);
+  const regen = async () => {
+    setBusy(true);
+    try {
+      const n = await regenerateHighlights(data.paperId);
+      toast(`已重新標出 ${n} 句關鍵句`);
+    } catch (e) {
+      toast(friendlyError(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="absolute left-0 top-11 w-[340px] rounded-2xl border border-line bg-bg shadow-[var(--shadow)]">
+    <div className="absolute left-0 top-11 w-[340px] max-w-[calc(100vw-16px)] whitespace-normal rounded-2xl border border-line bg-bg shadow-[var(--shadow)]">
       <div className="flex items-stretch border-b border-line">
         <div className="flex-1 px-4 py-3">
           <div className="font-semibold">自動高亮</div>
-          <div className="text-xs text-ink-soft">AI 在翻譯時同步標出論文的關鍵句，兩側同時顯示</div>
+          <div className="text-xs text-ink-soft">AI 讀完全文後標出關鍵句，原文與譯文兩側同時顯示</div>
         </div>
         <button type="button" onClick={() => set({ showAuto: !showAuto })} className="w-20 border-l border-line bg-muted text-sm font-medium hover:bg-line">
           {showAuto ? "隱藏" : "顯示"}
@@ -279,6 +307,25 @@ function AutoHighlightMenu({ onClose }: { onClose: () => void }) {
           </span>
         ))}
       </div>
+      <div className="border-t border-line px-4 py-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs text-ink-faint">高亮密度</span>
+          <Segmented
+            value={data.settings.highlightDensity ?? "normal"}
+            onChange={(v) => void saveSettings({ highlightDensity: v })}
+            options={[
+              { value: "low", label: "少" },
+              { value: "normal", label: "標準" },
+              { value: "high", label: "多" },
+            ]}
+          />
+        </div>
+        <Button className="w-full !py-1.5 text-sm" disabled={busy} onClick={() => void regen()}>
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          {busy ? "全文重新標記中…" : "重新產生這篇的高亮"}
+        </Button>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">只重跑高亮（1 次 AI 呼叫），譯文與你的劃線都不會變。</p>
+      </div>
       <div className="border-t border-line px-4 py-2 text-right">
         <button type="button" className="text-xs text-ink-soft hover:underline" onClick={onClose}>
           關閉
@@ -290,7 +337,7 @@ function AutoHighlightMenu({ onClose }: { onClose: () => void }) {
 
 function Floating({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cx("scroll-thin absolute left-2 top-14 max-h-[70vh] w-[380px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-2xl border border-line bg-bg p-3 shadow-[var(--shadow)]", className)}>
+    <div className={cx("scroll-thin absolute left-2 whitespace-normal top-14 max-h-[70vh] w-[380px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-2xl border border-line bg-bg p-3 shadow-[var(--shadow)]", className)}>
       {children}
     </div>
   );
@@ -475,7 +522,7 @@ function ExportMenu({ onClose }: { onClose: () => void }) {
   const translations = new Map([...data.trans].map(([k, v]) => [k, v.t]));
   const notes = async () => (await db.notes.get(p.id))?.text ?? "";
   return (
-    <div className="absolute right-0 top-10 w-60 overflow-hidden rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]">
+    <div className="absolute right-0 top-10 w-60 whitespace-normal overflow-hidden rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]">
       <MenuBtn
         onClick={() => {
           download(`${safeFileName(p.title)}.ris`, toRis(p, { highlights: data.highlights, model: data.model, translations }), "application/x-research-info-systems");

@@ -11,6 +11,7 @@ import { useReader } from "@/store/reader";
 import { useApp } from "./AppFrame";
 import { SunMark } from "./SunMark";
 import { IconButton, Segmented, cx, relTime, toast } from "./ui";
+import { readHref } from "@/lib/routes";
 
 export function LeftSidebar({ paperId, onCollapse }: { paperId?: string; onCollapse?: () => void }) {
   const router = useRouter();
@@ -43,7 +44,7 @@ export function LeftSidebar({ paperId, onCollapse }: { paperId?: string; onColla
     try {
       let last = "";
       for (const f of Array.from(files)) last = await importPdf(f, f.name);
-      if (last) router.push(`/read/${last}`);
+      if (last) router.push(readHref(last));
     } catch (e) {
       toast(`匯入失敗：${e instanceof Error ? e.message : e}`, "error");
     } finally {
@@ -130,7 +131,7 @@ export function LeftSidebar({ paperId, onCollapse }: { paperId?: string; onColla
               {(recent ?? []).map((p) => (
                 <li key={p.id}>
                   <Link
-                    href={`/read/${p.id}`}
+                    href={readHref(p.id)}
                     className={cx("flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted", p.id === paperId && "bg-muted")}
                   >
                     {p.hasFile ? <Layers size={17} className="mt-0.5 shrink-0 text-ink-faint" /> : <Globe size={17} className="mt-0.5 shrink-0 text-ink-faint" />}

@@ -13,6 +13,7 @@ import { cx } from "../ui";
 import { useReaderData } from "./ReaderData";
 import { SourceLayer } from "./SourceLayer";
 import { TranslatedLayer } from "./TranslatedLayer";
+import { InkLayer } from "./InkLayer";
 
 const PANE_PAD = 20;
 
@@ -196,6 +197,7 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
     <div ref={boxRef} data-row={index} className="relative shrink-0 bg-white shadow-sm ring-1 ring-black/5" style={{ width: w, height: h }}>
       <canvas ref={canvasRef} className="absolute inset-0" style={{ width: w, height: h }} />
       {near && (side === "src" ? <SourceLayer index={index} scale={scale} /> : <TranslatedLayer index={index} scale={scale} colors={colors} />)}
+      {near && <InkLayer index={index} side={side} />}
     </div>
   );
 });

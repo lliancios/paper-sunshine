@@ -67,8 +67,8 @@ export function useLoadReaderData(paperId: string): ReaderData | null | "missing
   const trans = useMemo(() => new Map((transRecs ?? []).filter((r) => r.t).map((r) => [r.sid, { t: r.t, c: r.c, mock: r.mock }])), [transRecs]);
   const cats = useMemo(() => {
     const m = new Map<string, string>();
-    for (const r of transRecs ?? []) if (r.c) m.set(r.sid, r.c); // legacy per-page categories
-    for (const r of hlRecs ?? []) m.set(r.sid, r.c);
+    if (hlRecs?.length) for (const r of hlRecs) m.set(r.sid, r.c);
+    else for (const r of transRecs ?? []) if (r.c) m.set(r.sid, r.c); // legacy v0.1 per-page categories
     return m;
   }, [transRecs, hlRecs]);
   const pagesDone = useMemo(() => new Set((statusRecs ?? []).filter((s) => s.done).map((s) => s.page)), [statusRecs]);
@@ -140,4 +140,15 @@ export function scrollToSentence(model: DocModel, sid: string, off = 0) {
   const st = useReader.getState();
   st.scrollToPage?.(loc.page, loc.y);
   st.set({ flash: { sid, at: Date.now() } });
+}
+
+/** Scrolls to the first of several sentences and flashes all of them. */
+export function scrollToSentences(model: DocModel, sids: string[]) {
+  const ok = sids.filter((s) => model.sentences[s]);
+  if (!ok.length) return;
+  const loc = locate(model, ok[0], 0);
+  if (!loc) return;
+  const st = useReader.getState();
+  st.scrollToPage?.(loc.page, Math.max(0, loc.y - 40));
+  st.set({ flash: { sid: ok[0], sids: ok, at: Date.now() } });
 }

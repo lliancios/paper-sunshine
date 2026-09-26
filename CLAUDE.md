@@ -15,13 +15,18 @@ AI paper reader (Next.js 16 App Router, React 19, TypeScript, Tailwind 4, pdf.js
 - Every selectable text node sits in an element with `data-sid` and `data-start`, inside a container with `data-side` and `data-page` (`src/lib/selection.ts` relies on this).
 - The translate prompt's output format (one item per sentence id, no merging/splitting) is locked in `src/lib/server/prompts.ts`; the user's role prompt only controls style. Do not let user settings change the format.
 - Changing sentence segmentation changes IDs for newly parsed papers only; existing papers keep their stored model. Bump `DocModel.v` if the shape changes.
+- Exception: handwriting (`ink` table, `InkLayer.tsx`) is stored in PDF page units at scale 1 (the same space as piece rects), never screen pixels. Drawn precisely on its `side`, mirrored faintly on the other.
+- AI answers cite sentences as `[[sid]]` (one-pager, chat); `CitedMarkdown` in `OnePager.tsx` turns them into page chips that scroll to and flash the sentences.
 
 ## Layout
 - `src/lib/pipeline.ts`: parse → OpenAlex metadata → overview/glossary → per-page translate (+auto-highlight categories in the same call) → related papers. Checkpointed in IndexedDB; `setFocus` prioritises the page being read.
-- `src/lib/db.ts`: Dexie tables. User-authored rows have `updatedAt` and `deleted` tombstones for the planned Supabase sync (v0.2.0). Use soft delete for highlights/explanations/chats.
+- `src/lib/db.ts`: Dexie tables. User-authored rows have `updatedAt` and `deleted` tombstones for the planned Supabase sync. Use soft delete for highlights/explanations/chats.
 - `src/app/api/*`: server routes. Keys live only in env vars (`GEMINI_API_KEY`, `OPENALEX_API_KEY`); every route calls `requireAuth` (header `x-ps-pass` vs `APP_PASSCODE`). Without a Gemini key, routes return mock data (`src/lib/server/mock.ts`; `MOCK_STYLE=zh` gives Chinese-shaped filler for layout testing).
 - Gemini: plain REST in `src/lib/server/gemini.ts`, Gemini 3.x rules (`thinkingLevel`, no temperature). Default model `gemini-3.8-flash`.
-- Reader UI: `src/components/reader/` (`Pages.tsx` virtualised rows, `SourceLayer.tsx`, `TranslatedLayer.tsx`, `Popovers.tsx`, `RightSidebar.tsx`, `Toolbar.tsx`). State in `src/store/reader.ts` (zustand).
+- Routes: library `/`, reader `/read?id=<paperId>` (one static page shell so the installed app opens any paper offline; `/read/[id]` only redirects). Link with `readHref()` from `src/lib/routes.ts`.
+- PWA: `src/app/manifest.ts`, `public/sw.js` (caches the app shell and `/_next/static`; never `/api`). Cache names follow `APP_VERSION`, so bump the version to roll the cache.
+- Errors: wrap new panels/popovers in `ErrorBoundary` (`src/components/ErrorBoundary.tsx`); `src/lib/recover.ts` reloads once on missing chunks after a deploy and `AppFrame` shows a "new version" banner when `/api/health` reports another build.
+- Reader UI: `src/components/reader/` (`Pages.tsx` two synced scroll panes, `SourceLayer.tsx`, `TranslatedLayer.tsx`, `InkLayer.tsx` + `InkToolbar.tsx`, `Popovers.tsx`, `RightSidebar.tsx`, `OnePager.tsx`, `Toolbar.tsx`). State in `src/store/reader.ts` (zustand).
 
 ## Style
 - UI copy is Traditional Chinese (Taiwan). Use 訊息 (never 信息), avoid 口徑, and never use em dashes in UI text or prompts.

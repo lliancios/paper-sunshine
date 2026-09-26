@@ -8,11 +8,14 @@ import { HIGHLIGHT_COLORS } from "@/lib/defaults";
 import { enqueue } from "@/lib/pipeline";
 import { caretAt, clearSelection, readSelection } from "@/lib/selection";
 import { useReader } from "@/store/reader";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { LeftSidebar } from "../LeftSidebar";
 import { RelatedPanel, SavedPanel } from "../WorkPanels";
 import { SunMark } from "../SunMark";
 import { cx } from "../ui";
 import { createHighlight } from "./actions";
+import { inkUndo } from "./InkLayer";
+import { InkToolbar } from "./InkToolbar";
 import { PagesViewport } from "./Pages";
 import { OnePagerModal } from "./OnePager";
 import { ExplainPopover, FigurePanel, HighlightPopover, SelectionToolbar, TranslatePopover } from "./Popovers";
@@ -38,6 +41,7 @@ export function ReaderView({ paperId }: { paperId: string }) {
       savedOpen: false,
       regionMode: false,
       onepagerOpen: false,
+      inkMode: false,
       currentPage: 0,
     });
   }, [paperId]);
@@ -113,6 +117,7 @@ function ReaderShell({ data }: { data: ReaderData }) {
     const onPointerUp = (e: PointerEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("[data-popover]")) return;
+      if (useReader.getState().inkMode) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
       const st = useReader.getState();
@@ -137,6 +142,14 @@ function ReaderShell({ data }: { data: ReaderData }) {
       const st = useReader.getState();
       const target = e.target as HTMLElement;
       if (target.closest("input, textarea, [contenteditable]")) return;
+      if (st.inkMode) {
+        if (e.key === "Escape") st.set({ inkMode: false });
+        else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          void inkUndo();
+        }
+        return;
+      }
       if (e.key === "Escape") {
         clearSelection();
         st.set({ selection: null, explain: null, translatePop: null, highlightPop: null, figure: null, regionMode: false });
@@ -174,27 +187,56 @@ function ReaderShell({ data }: { data: ReaderData }) {
     <div className="flex h-dvh overflow-hidden">
       {leftOpen && (
         <div className="relative hidden h-full md:block">
-          <LeftSidebar paperId={data.paperId} onCollapse={() => set({ leftOpen: false })} />
+          <ErrorBoundary label="左側欄" compact>
+            <LeftSidebar paperId={data.paperId} onCollapse={() => set({ leftOpen: false })} />
+          </ErrorBoundary>
         </div>
       )}
       <div className="relative flex min-w-0 flex-1 flex-col">
-        <Toolbar />
+        <ErrorBoundary label="工具列" compact>
+          <Toolbar />
+        </ErrorBoundary>
         <div className={cx("flex min-h-0 flex-1", bottom ? "flex-col" : "flex-row")}>
           <div className="relative min-h-0 min-w-0 flex-1">
-            <PagesViewport />
-            {relatedOpen && <RelatedPanel paperId={data.paperId} />}
-            {savedOpen && <SavedPanel />}
+            <ErrorBoundary label="論文頁面">
+              <PagesViewport />
+            </ErrorBoundary>
+            {relatedOpen && (
+              <ErrorBoundary label="相關論文" compact>
+                <RelatedPanel paperId={data.paperId} />
+              </ErrorBoundary>
+            )}
+            {savedOpen && (
+              <ErrorBoundary label="已儲存" compact>
+                <SavedPanel />
+              </ErrorBoundary>
+            )}
           </div>
           <RightPanel />
         </div>
       </div>
       <RightRail />
-      <SelectionToolbar />
-      <HighlightPopover />
-      <ExplainPopover />
-      <TranslatePopover />
-      <FigurePanel />
-      <OnePagerModal />
+      <ErrorBoundary silent label="選取工具列">
+        <SelectionToolbar />
+      </ErrorBoundary>
+      <ErrorBoundary silent label="劃線視窗">
+        <HighlightPopover />
+      </ErrorBoundary>
+      <ErrorBoundary silent label="解釋視窗">
+        <ExplainPopover />
+      </ErrorBoundary>
+      <ErrorBoundary silent label="翻譯視窗">
+        <TranslatePopover />
+      </ErrorBoundary>
+      <ErrorBoundary silent label="圖片說明">
+        <FigurePanel />
+      </ErrorBoundary>
+      <ErrorBoundary label="一頁速覽" compact>
+        <OnePagerModal />
+      </ErrorBoundary>
+      <ErrorBoundary silent label="手寫工具">
+        <InkToolbar />
+      </ErrorBoundary>
     </div>
   );
 }

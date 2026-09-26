@@ -85,8 +85,12 @@ export interface GuideRequest {
   targetLanguage: string;
   categories: Category[];
   autoHighlight: boolean;
+  /** Only (re)pick the key sentences; keep the existing overview and glossary. */
+  highlightsOnly?: boolean;
+  density?: HighlightDensity;
   model?: string;
 }
+export type HighlightDensity = "low" | "normal" | "high";
 export interface Guide extends Overview {
   highlights: { id: string; c: string }[];
 }
@@ -155,4 +159,8 @@ export interface HealthResponse {
   providers: Record<string, boolean>;
   models: { translate: string; chat: string };
   version: string;
+  /** Deploy id (git sha) of the running server. */
+  build: string;
+  /** Supabase project for cross-device sync (only sent to authorized clients). */
+  sync: { url: string; key: string } | null;
 }

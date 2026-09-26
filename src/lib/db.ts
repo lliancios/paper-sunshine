@@ -1,6 +1,6 @@
 // Local-first storage (IndexedDB via Dexie). Every user-authored record has
-// `updatedAt` and a `deleted` tombstone so v0.2.0 can sync these tables to
-// Supabase without a schema change.
+// `updatedAt` and a `deleted` tombstone; src/lib/sync.ts mirrors the tables to
+// Supabase when cross-device sync is enabled.
 import Dexie, { type Table } from "dexie";
 import type { Overview, QuizQuestion, RelatedItem, WorkMeta } from "./apiTypes";
 import type { Category, ColorScheme, Journal } from "./defaults";
@@ -55,6 +55,7 @@ export interface FileRec {
 export interface ModelRec {
   paperId: string;
   model: DocModel;
+  at?: number; // when this model was produced (sync uses it to spot re-parses)
 }
 export interface TransRec {
   paperId: string;
@@ -185,6 +186,37 @@ export interface OnePager {
   at: number;
 }
 
+/**
+ * One handwriting stroke (Apple Pencil, finger or mouse). Points are in PDF
+ * page units at scale 1 (the same space as sentence rects), so strokes stay
+ * put at any zoom. Drawn precisely on `side`; mirrored faintly on the other.
+ */
+export interface InkStroke {
+  id: string;
+  paperId: string;
+  page: number;
+  side: Side;
+  tool: "pen" | "marker";
+  color: string; // hex
+  size: number; // page units
+  pts: number[]; // flat [x, y, pressure, x, y, pressure, …]
+  createdAt: number;
+  updatedAt: number;
+  deleted?: boolean;
+}
+
+/** Pending local change waiting to be pushed to the cloud. */
+export interface OutboxRec {
+  key: string; // `${tbl}:${id}`
+  tbl: string;
+  id: string;
+  at: number;
+}
+export interface SyncStateRec {
+  key: string;
+  value: unknown;
+}
+
 // Writing studio
 export interface Project {
   id: string;
@@ -217,6 +249,7 @@ export interface AppSettings {
   modelTranslate: string;
   modelChat: string;
   hoverStyle: "gray" | "green" | "amber";
+  highlightDensity: "low" | "normal" | "high";
   autoOnepager: boolean;
   autoTranslate: boolean;
   theme: "system" | "light" | "dark";
@@ -250,6 +283,9 @@ class PaperDB extends Dexie {
   onepagers!: Table<OnePager, string>;
   projects!: Table<Project, string>;
   docs!: Table<WritingDoc, string>;
+  ink!: Table<InkStroke, string>;
+  outbox!: Table<OutboxRec, string>;
+  syncState!: Table<SyncStateRec, string>;
 
   constructor() {
     super("paper-sunshine");
@@ -278,6 +314,11 @@ class PaperDB extends Dexie {
       projects: "id, updatedAt",
       docs: "id, projectId, updatedAt",
     });
+    this.version(3).stores({
+      ink: "id, paperId, [paperId+page], updatedAt",
+      outbox: "key, at",
+      syncState: "key",
+    });
   }
 }
 
@@ -288,33 +329,46 @@ export const uid = () =>
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+/**
+ * Deletes a paper everywhere: the paper row stays as a tombstone (so other
+ * devices learn about the deletion when syncing) and everything else is purged.
+ */
 export async function deletePaper(id: string) {
-  await db.transaction(
-    "rw",
-    [db.papers, db.files, db.models, db.translations, db.pageStatus, db.overviews, db.highlights, db.explanations, db.notes, db.chats, db.related, db.refs, db.quizzes, db.jobs],
-    async () => {
-      await db.papers.delete(id);
-      await db.files.delete(id);
-      await db.models.delete(id);
-      await db.translations.where("paperId").equals(id).delete();
-      await db.pageStatus.where("paperId").equals(id).delete();
-      await db.overviews.delete(id);
-      await db.highlights.where("paperId").equals(id).delete();
-      await db.explanations.where("paperId").equals(id).delete();
-      await db.notes.delete(id);
-      await db.chats.where("paperId").equals(id).delete();
-      await db.related.delete(id);
-      await db.refs.delete(id);
-      await db.quizzes.delete(id);
-      await db.jobs.delete(id);
-      await db.autohl.where("paperId").equals(id).delete();
-      await db.onepagers.delete(id);
-    },
-  );
+  const now = Date.now();
+  await db.papers.update(id, { deleted: true, updatedAt: now, hasFile: false });
+  await purgePaperData(id);
+}
+
+/** Removes a paper's local data (PDF, model, translations, notes…), keeping the paper row. */
+export async function purgePaperData(id: string) {
+  const tables = [
+    db.files, db.models, db.translations, db.pageStatus, db.overviews, db.highlights, db.explanations, db.notes, db.chats,
+    db.related, db.refs, db.quizzes, db.jobs, db.autohl, db.onepagers, db.ink,
+  ];
+  await db.transaction("rw", tables, async () => {
+    await db.files.delete(id);
+    await db.models.delete(id);
+    await db.translations.where("paperId").equals(id).delete();
+    await db.pageStatus.where("paperId").equals(id).delete();
+    await db.overviews.delete(id);
+    await db.highlights.where("paperId").equals(id).delete();
+    await db.explanations.where("paperId").equals(id).delete();
+    await db.notes.delete(id);
+    await db.chats.where("paperId").equals(id).delete();
+    await db.related.delete(id);
+    await db.refs.delete(id);
+    await db.quizzes.delete(id);
+    await db.jobs.delete(id);
+    await db.autohl.where("paperId").equals(id).delete();
+    await db.onepagers.delete(id);
+    await db.ink.where("paperId").equals(id).delete();
+  });
 }
 
 /** Clears machine-generated data so a paper can be re-translated. */
 export async function resetTranslations(id: string, opts: { model?: boolean } = {}) {
+  // A new epoch tells other devices to replace (not merge) this paper's translations.
+  await db.syncState.put({ key: `epoch:${id}`, value: Date.now() });
   await db.transaction("rw", [db.translations, db.pageStatus, db.overviews, db.jobs, db.autohl, db.onepagers, db.models], async () => {
     await db.translations.where("paperId").equals(id).delete();
     await db.pageStatus.where("paperId").equals(id).delete();

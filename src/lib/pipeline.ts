@@ -84,7 +84,12 @@ async function runOne(paperId: string) {
   try {
     await process(paperId);
   } catch (e) {
-    await setJob(paperId, "error", { error: e instanceof Error ? e.message : String(e) });
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      // Offline: park the job; AppFrame calls resumeAll() when the network returns.
+      await setJob(paperId, "paused", { note: "離線中，連上網路後會自動繼續" });
+    } else {
+      await setJob(paperId, "error", { error: e instanceof Error ? e.message : String(e) });
+    }
   } finally {
     running.delete(paperId);
   }
@@ -248,8 +253,8 @@ async function process(paperId: string) {
     if (settings.autoTranslate) {
       let overview = (await db.overviews.get(paperId))?.data;
       const hlCount = await db.autohl.where("paperId").equals(paperId).count();
-      const legacyHl = await db.translations.where("paperId").equals(paperId).filter((t) => !!t.c).count();
-      if (!overview || (settings.autoHighlight && !hlCount && !legacyHl)) {
+      // Legacy per-page categories (v0.1) cover only the pages translated back then, so they don't count.
+      if (!overview || (settings.autoHighlight && !hlCount)) {
         await setJob(paperId, "overview");
         overview = await withQuota(paperId, () => runGuide(paperId, model!, paper!.title, settings, m.translate));
       }
@@ -378,6 +383,7 @@ async function runGuide(paperId: string, model: DocModel, title: string, setting
       targetLanguage: settings.targetLanguage,
       categories: settings.categories,
       autoHighlight: settings.autoHighlight,
+      density: settings.highlightDensity,
       model: modelSpec,
     },
     undefined,
@@ -386,11 +392,43 @@ async function runGuide(paperId: string, model: DocModel, title: string, setting
   const overview: Overview = { titleZh: g.titleZh, summary3: g.summary3, keywords: g.keywords, glossary: g.glossary, mock: g.mock };
   await db.overviews.put({ paperId, data: overview, at: Date.now() });
   if (g.titleZh) await db.papers.update(paperId, { titleZh: g.titleZh });
-  const valid = new Set(model.order);
-  const hl = (g.highlights ?? []).filter((x) => valid.has(x.id)).map((x) => ({ paperId, sid: x.id, c: x.c }));
-  await db.autohl.where("paperId").equals(paperId).delete();
-  if (hl.length) await db.autohl.bulkPut(hl);
+  await saveAutoHighlights(paperId, model, g.highlights ?? []);
   return overview;
+}
+
+async function saveAutoHighlights(paperId: string, model: DocModel, list: { id: string; c: string }[]) {
+  const valid = new Set(model.order);
+  const hl = list.filter((x) => valid.has(x.id)).map((x) => ({ paperId, sid: x.id, c: x.c }));
+  await db.transaction("rw", [db.autohl, db.translations], async () => {
+    await db.autohl.where("paperId").equals(paperId).delete();
+    if (hl.length) await db.autohl.bulkPut(hl);
+    // Drop legacy per-page categories so only the whole-paper pick shows.
+    await db.translations.where("paperId").equals(paperId).filter((t) => !!t.c).modify({ c: null });
+  });
+  return hl.length;
+}
+
+/** Re-picks the auto highlights for the whole paper (keeps translations and overview). */
+export async function regenerateHighlights(paperId: string): Promise<number> {
+  const [paper, rec, settings] = await Promise.all([db.papers.get(paperId), db.models.get(paperId), getSettings()]);
+  if (!paper || !rec) throw new Error("論文還沒解析完成");
+  const g = await aiJson<Guide>(
+    {
+      task: "guide",
+      title: paper.title,
+      lines: paperLines(rec.model),
+      rolePrompt: settings.rolePrompt,
+      targetLanguage: settings.targetLanguage,
+      categories: settings.categories,
+      autoHighlight: true,
+      highlightsOnly: true,
+      density: settings.highlightDensity,
+      model: models(settings).translate,
+    },
+    undefined,
+    240_000,
+  );
+  return saveAutoHighlights(paperId, rec.model, g.highlights ?? []);
 }
 
 /** Glossary terms get the "English（中文）" form only in their first sentence. */

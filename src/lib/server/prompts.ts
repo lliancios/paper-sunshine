@@ -36,8 +36,33 @@ export function translatePrompt(r: TranslateRequest) {
 // ---------------------------------------------------------------- guide ----
 
 /** Whole-paper pass: reading guide, glossary and all auto highlights in one request. */
+const DENSITY = {
+  low: "平均每頁 1 到 3 句，全篇約 10 到 30 句",
+  normal: "平均每頁 2 到 5 句，全篇約 20 到 50 句",
+  high: "平均每頁 4 到 8 句，全篇約 40 到 90 句",
+} as const;
+
+function highlightRule(r: GuideRequest, cats: string) {
+  return [
+    `highlights：從全文挑出讀者最該劃線的關鍵句，分類為 ${cats}。`,
+    `數量：${DENSITY[r.density ?? "normal"]}。只挑真正承載論點、方法或發現的句子，寧缺勿濫。`,
+    "分布：必須涵蓋全文各節（摘要、引言、理論與假設、方法、結果、討論與限制），不要集中在前幾頁；摘要最多 3 句，同一段最多 2 句。",
+    "只能使用輸入中出現過的句子ID，不要挑標題、參考文獻、作者簡介、致謝或版權說明。",
+  ].join("");
+}
+
 export function guidePrompt(r: GuideRequest) {
   const cats = r.categories.map((c) => `${c.key}＝${c.label}（${c.description}）`).join("；");
+  const catKeys = r.categories.map((c) => c.key);
+  const hlSchema = S.arr(S.obj({ id: S.str(), c: catKeys.length ? S.enumOf(catKeys) : S.str() }));
+  if (r.highlightsOnly) {
+    const system = [
+      "你是學術研究助理。輸入是整篇論文，每行是「句子ID<Tab>句子」，標題行以 ## 開頭。輸出 JSON，只有 highlights 一個欄位：",
+      highlightRule(r, cats),
+      STYLE,
+    ].join("\n");
+    return { system, user: `論文標題：${r.title ?? "（未知）"}\n\n${r.lines}`, schema: S.obj({ highlights: hlSchema }) };
+  }
   const system = [
     "你是學術研究助理。在翻譯整篇論文之前，一次完成導讀、術語表與關鍵句標記。",
     `以下是使用者的翻譯規範，術語的${r.targetLanguage}譯法必須遵守它：`,
@@ -49,19 +74,16 @@ export function guidePrompt(r: GuideRequest) {
     "summary3：三句話摘要（研究問題、方法、主要發現），每句不超過 60 字。",
     `keywords：8 到 15 個最核心的構念、理論或方法詞：en、${r.targetLanguage}譯名 zh、在本文脈絡中的定義 def（不超過 60 字）。`,
     "glossary：15 到 60 個反覆出現的專有名詞、構念、變數與方法詞（含 keywords）的統一譯名。en 使用原文最常見寫法（保留大小寫與縮寫）。",
-    r.autoHighlight
-      ? `highlights：從全文挑出讀者最該劃線的關鍵句，分類為 ${cats}。平均每頁 2 到 6 句，全篇通常 20 到 60 句；只能使用輸入中出現過的句子ID，不要挑標題、參考文獻、作者簡介或致謝。`
-      : "highlights：空陣列。",
+    r.autoHighlight ? highlightRule(r, cats) : "highlights：空陣列。",
     STYLE,
   ].join("\n");
   const user = `論文標題：${r.title ?? "（未知）"}\n\n${r.lines}`;
-  const catKeys = r.categories.map((c) => c.key);
   const schema = S.obj({
     titleZh: S.str(),
     summary3: S.arr(S.str()),
     keywords: S.arr(S.obj({ en: S.str(), zh: S.str(), def: S.str() })),
     glossary: S.arr(S.obj({ en: S.str(), zh: S.str() })),
-    highlights: S.arr(S.obj({ id: S.str(), c: catKeys.length ? S.enumOf(catKeys) : S.str() })),
+    highlights: hlSchema,
   });
   return { system, user, schema };
 }
@@ -200,7 +222,7 @@ export function streamPrompt(r: StreamRequest): { system: string; user: string }
           "論文全文（每行「句子ID<Tab>句子」，標題行以 ## 開頭）：",
           r.paperText ?? "",
           "請做「一頁速覽」，讓讀者在精讀前 3 分鐘掌握全文。規則：",
-          "· 每個事實性陳述後面用 [[句子ID]] 標出依據（例如 [[3.12]]），只能用輸入中出現的ID；論文沒寫的就寫「論文未說明」，不可推測。",
+          "· 每個事實性陳述後面用 [[句子ID]] 標出依據（例如 [[3.12]]），一個陳述最多 3 個依據，寫成 [[3.12]][[4.2]]；只能用輸入中出現的ID；論文沒寫的就寫「論文未說明」，不可推測。",
           "· 使用以下 Markdown 段落標題，順序固定，整體精簡：",
           "## 一句話結論",
           "## 論文身分證（表格：類型｜研究情境｜分析層次｜樣本與資料｜方法）",
@@ -230,7 +252,11 @@ export function streamPrompt(r: StreamRequest): { system: string; user: string }
       return {
         system: [
           base,
-          "你正在和使用者討論一篇論文。回答以論文內容為依據，引用時標出段落或頁碼線索；論文沒有提到的要明說，不要編造。",
+          [
+            "你正在陪使用者讀一篇論文，但使用者可以問任何問題（這篇論文、研究方法、統計、理論、寫作、翻譯或一般知識），都要直接回答。",
+            "論文全文附在下面，每行是「句子ID<Tab>句子」。回答用到論文內容時，在該句句末用 [[句子ID]] 標出依據（一個論點最多 3 個，寫成 [[3.12]][[4.2]]），只能用全文中出現的ID。",
+            "超出論文的部分用你的專業知識回答，並在該段開頭標明「（非出自本文）」；論文沒有寫的事不可說成論文寫的。",
+          ].join("\n"),
           research,
           paper,
           `論文全文：\n${r.paperText ?? ""}`,

@@ -160,10 +160,10 @@ export function Stars({ value, onChange, size = 15 }: { value: number; onChange?
   );
 }
 
-export function Markdown({ children }: { children: string }) {
+export function Markdown({ children }: { children: string | null | undefined }) {
   return (
     <div className="ps-md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{typeof children === "string" ? children : String(children ?? "")}</ReactMarkdown>
     </div>
   );
 }

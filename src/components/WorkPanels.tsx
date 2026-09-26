@@ -11,6 +11,7 @@ import { saveSettings, useSettings } from "@/lib/settings";
 import { doiUrl, openWork, saveWork, unsaveWork, workKey } from "@/lib/works";
 import { useReader } from "@/store/reader";
 import { Badge, IconButton, Segmented, cx, toast } from "./ui";
+import { readHref } from "@/lib/routes";
 
 export function WorkCard({ w, compact }: { w: WorkMeta | RelatedItem; compact?: boolean }) {
   const router = useRouter();
@@ -28,7 +29,7 @@ export function WorkCard({ w, compact }: { w: WorkMeta | RelatedItem; compact?: 
     setBusy(true);
     try {
       const r = await openWork(w);
-      if (r.paperId) router.push(`/read/${r.paperId}`);
+      if (r.paperId) router.push(readHref(r.paperId));
       else toast("沒有免費全文，已加入「已儲存」。用 VPN 下載後拖進文獻庫，會依 DOI 自動配對。");
     } finally {
       setBusy(false);

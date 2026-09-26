@@ -71,7 +71,7 @@ export function mockGuide(r: GuideRequest): Guide {
     .map((l) => l.split("\t")[0])
     .filter((x) => /^\d+\.\d+$/.test(x));
   const highlights = r.autoHighlight
-    ? ids.filter((_, i) => i % 9 === 3).map((id, i) => ({ id, c: r.categories[i % Math.max(1, r.categories.length)]?.key ?? "novelty" }))
+    ? ids.filter((_, i) => i % ({ low: 14, normal: 9, high: 5 }[r.density ?? "normal"]) === 3).map((id, i) => ({ id, c: r.categories[i % Math.max(1, r.categories.length)]?.key ?? "novelty" }))
     : [];
   return { ...mockOverview(r.title), highlights };
 }
