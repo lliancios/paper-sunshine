@@ -1,0 +1,244 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f8f8f9;
+  --bg-muted: #f1f1f4;
+  --line: #e7e7eb;
+  --ink: #1f2328;
+  --ink-soft: #6b7280;
+  --ink-faint: #9ca3af;
+  --accent: #f59e0b;
+  --accent-strong: #d97706;
+  --accent-soft: #fff6e0;
+  --reader: #eef0f3;
+  --hover-sent: rgba(251, 191, 36, 0.22);
+  --shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+}
+.dark {
+  --bg: #16171a;
+  --bg-soft: #1c1d21;
+  --bg-muted: #25262b;
+  --line: #313238;
+  --ink: #e8e8ea;
+  --ink-soft: #a1a1aa;
+  --ink-faint: #71717a;
+  --accent: #fbbf24;
+  --accent-strong: #f59e0b;
+  --accent-soft: #3a2e12;
+  --reader: #0f1012;
+  --hover-sent: rgba(251, 191, 36, 0.28);
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-soft: var(--bg-soft);
+  --color-muted: var(--bg-muted);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-reader: var(--reader);
+  --font-sans: "Inter", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
+}
+
+/* ------------------------------------------------------- source text layer */
+.ps-textlayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  z-index: 3;
+  -webkit-text-size-adjust: none;
+}
+.ps-textlayer span[data-start] {
+  position: absolute;
+  white-space: pre;
+  color: transparent;
+  transform-origin: 0 0;
+  cursor: text;
+  font-family: sans-serif;
+}
+.ps-textlayer span[data-start]::selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: transparent;
+}
+.ps-region-mode .ps-textlayer {
+  pointer-events: none;
+}
+
+.ps-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.ps-marks > div {
+  position: absolute;
+  border-radius: 2px;
+}
+.ps-mark {
+  mix-blend-mode: multiply;
+}
+.dark .ps-mark {
+  mix-blend-mode: multiply;
+}
+.ps-hover {
+  background: var(--hover-sent);
+  outline: 1px solid rgba(245, 158, 11, 0.55);
+}
+.ps-flash {
+  animation: ps-flash 1.6s ease-out 1;
+}
+@keyframes ps-flash {
+  0%,
+  30% {
+    background: rgba(245, 158, 11, 0.55);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* --------------------------------------------------- translated overlay */
+.ps-tblock {
+  position: absolute;
+  overflow: hidden;
+  color: #1f2328;
+  line-height: 1.38;
+  word-break: break-word;
+  z-index: 3;
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif;
+}
+.ps-tblock.is-heading {
+  font-weight: 600;
+}
+.ps-tblock.is-label {
+  line-height: 1.15;
+  text-align: center;
+}
+.ps-tblock.is-centered {
+  text-align: center;
+}
+.ps-sent {
+  border-radius: 2px;
+  transition: background-color 0.12s;
+  cursor: text;
+}
+.ps-sent.is-hover {
+  background: var(--hover-sent);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.45);
+}
+.ps-sent.is-flash {
+  animation: ps-flash 1.6s ease-out 1;
+}
+.ps-sent ::selection,
+.ps-sent::selection {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+/* ------------------------------------------------------------ markdown */
+.ps-md {
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+.ps-md p {
+  margin: 0.4em 0;
+}
+.ps-md ul,
+.ps-md ol {
+  padding-left: 1.2em;
+  margin: 0.4em 0;
+}
+.ps-md ul {
+  list-style: disc;
+}
+.ps-md ol {
+  list-style: decimal;
+}
+.ps-md h1,
+.ps-md h2,
+.ps-md h3 {
+  font-weight: 600;
+  margin: 0.8em 0 0.3em;
+}
+.ps-md h2 {
+  font-size: 1rem;
+}
+.ps-md h3 {
+  font-size: 0.95rem;
+}
+.ps-md table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.8rem;
+  display: block;
+  overflow-x: auto;
+}
+.ps-md th,
+.ps-md td {
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+.ps-md th {
+  background: var(--bg-muted);
+}
+.ps-md code {
+  background: var(--bg-muted);
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+.ps-md strong {
+  font-weight: 600;
+}
+.ps-md blockquote {
+  border-left: 3px solid var(--line);
+  padding-left: 0.7em;
+  color: var(--ink-soft);
+}
+
+.ps-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.12), transparent);
+  background-size: 200% 100%;
+  animation: ps-shimmer 1.4s linear infinite;
+}
+@keyframes ps-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
