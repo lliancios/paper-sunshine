@@ -27,25 +27,54 @@ export class GeminiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public retryAfter?: number, // seconds, from Google's RetryInfo
+    public quota?: string, // e.g. GenerateRequestsPerDayPerProjectPerModel-FreeTier
   ) {
     super(message);
   }
 }
 
-interface GenOptions {
+/** Pulls retryDelay / quotaId out of a Google API error body. */
+function parseGoogleError(body: string): { message: string; retryAfter?: number; quota?: string } {
+  try {
+    const j = JSON.parse(body) as {
+      error?: { message?: string; details?: { "@type"?: string; retryDelay?: string; violations?: { quotaId?: string }[] }[] };
+    };
+    let retryAfter: number | undefined;
+    let quota: string | undefined;
+    for (const d of j.error?.details ?? []) {
+      if (d.retryDelay) retryAfter = Math.ceil(parseFloat(d.retryDelay));
+      if (d.violations?.[0]?.quotaId) quota = d.violations[0].quotaId;
+    }
+    return { message: j.error?.message ?? body.slice(0, 300), retryAfter, quota };
+  } catch {
+    return { message: body.slice(0, 300) };
+  }
+}
+
+/** JSON body for route error responses, so the client can back off correctly. */
+export function errorPayload(e: unknown) {
+  if (e instanceof GeminiError) return { error: e.message, retryAfter: e.retryAfter, quota: e.quota, status: e.status };
+  return { error: e instanceof Error ? e.message : String(e), status: 500 };
+}
+
+export interface GenOptions {
   model: string;
   system: string;
   contents: Content[];
   schema?: unknown;
   json?: boolean;
   thinking?: "low" | "medium" | "high";
+  maxOutputTokens?: number;
 }
 
 function buildBody(o: GenOptions, variant: number) {
   const generationConfig: Record<string, unknown> = {};
   if (o.json) generationConfig.responseMimeType = "application/json";
   if (o.schema && variant < 2) generationConfig.responseSchema = o.schema;
-  if (o.thinking && variant < 1) generationConfig.thinkingConfig = { thinkingLevel: o.thinking };
+  // Flash-Lite models do not think by default; sending thinkingConfig can 400 and waste a request.
+  if (o.thinking && variant < 1 && !/lite/i.test(o.model)) generationConfig.thinkingConfig = { thinkingLevel: o.thinking };
+  if (o.maxOutputTokens) generationConfig.maxOutputTokens = o.maxOutputTokens;
   return {
     systemInstruction: { parts: [{ text: o.system }] },
     contents: o.contents,
@@ -86,16 +115,25 @@ export async function generate(o: GenOptions): Promise<{ text: string; usage?: u
       return { text, usage: data.usageMetadata };
     }
     const detail = await res.text().catch(() => "");
-    if (res.status === 400 && variant < 2) {
+    const g = parseGoogleError(detail);
+    if (res.status === 400 && variant < 2 && !/API key/i.test(g.message)) {
       variant++; // drop thinkingConfig, then responseSchema
       continue;
     }
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+    // Short waits are cheap to absorb here; long ones go back to the client,
+    // which pauses and slows down instead of holding a server function open.
+    if (res.status === 429 && attempt < 1 && (g.retryAfter ?? 2) <= 6) {
       attempt++;
-      await sleep(1500 * 2 ** attempt + Math.random() * 500);
+      await sleep((g.retryAfter ?? 2) * 1000 + 300);
       continue;
     }
-    throw new GeminiError(`Gemini ${res.status}: ${detail.slice(0, 400)}`, res.status);
+    if (res.status >= 500 && attempt < 2) {
+      attempt++;
+      await sleep(1500 * attempt);
+      continue;
+    }
+    console.error(`[gemini] ${o.model} ${res.status}`, g.quota ?? "", g.message);
+    throw new GeminiError(`Gemini ${res.status}: ${g.message}`, res.status, g.retryAfter, g.quota);
   }
 }
 
@@ -120,8 +158,9 @@ export async function streamText(o: GenOptions): Promise<ReadableStream<Uint8Arr
     res = await post(o.model, "streamGenerateContent", buildBody(o, 1), "?alt=sse");
   }
   if (!res.ok || !res.body) {
-    const detail = await res.text().catch(() => "");
-    throw new GeminiError(`Gemini ${res.status}: ${detail.slice(0, 400)}`, res.status);
+    const g = parseGoogleError(await res.text().catch(() => ""));
+    console.error(`[gemini-stream] ${o.model} ${res.status}`, g.quota ?? "", g.message);
+    throw new GeminiError(`Gemini ${res.status}: ${g.message}`, res.status, g.retryAfter, g.quota);
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

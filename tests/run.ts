@@ -85,6 +85,25 @@ async function fixtureTest() {
   console.log(`  model: ${all.length} sentences, ${(size / 1024).toFixed(0)} KB`);
 }
 
+// Regression checks for real papers (local only; PDFs are gitignored).
+const REAL: Record<string, (m: DocModel) => void> = {
+  "pps.pdf": (m) => {
+    check("pps: printed page offset 70", m.info.pageOffset === 70, m.info.pageOffset);
+    const all = m.order.map((id) => m.sentences[id].text);
+    check("pps: footnote not merged into body sentence", all.some((t) => t.startsWith("Thus, a key question of interest to managers")));
+    check("pps: author bio is its own sentence", all.some((t) => t.startsWith("Goutam Challagalla is Brady Family Professor")));
+  },
+  "cc.pdf": (m) => {
+    check("cc: printed page offset 75 (JSTOR cover page)", m.info.pageOffset === 75, m.info.pageOffset);
+    const all = m.order.map((id) => m.sentences[id].text);
+    check("cc: running headers skipped", !all.some((t) => /Journal of Marketing, April 2003/.test(t) && t.length < 60));
+    check("cc: JSTOR boilerplate skipped", !all.some((t) => /collaborating with JSTOR|Accessibility support/.test(t)));
+  },
+  "sonnentag.pdf": (m) => {
+    check("sonnentag: printed page offset 518", m.info.pageOffset === 518, m.info.pageOffset);
+  },
+};
+
 async function extraFixtures() {
   const dir = "tests/fixtures";
   if (!existsSync(dir)) return;
@@ -94,6 +113,7 @@ async function extraFixtures() {
     const m = await load(`${dir}/${f}`);
     const cjkSpace = m.order.filter((id) => m.sentences[id].kind === "para" && /[\u4e00-\u9fff] [\u4e00-\u9fff]/.test(m.sentences[id].text)).length;
     check(`${f}: no spaces between CJK characters`, cjkSpace === 0, cjkSpace);
+    REAL[f]?.(m);
     const kinds: Record<string, number> = {};
     for (const id of m.order) kinds[m.sentences[id].kind] = (kinds[m.sentences[id].kind] ?? 0) + 1;
     console.log(`  ${f}: ${m.pages.length} pages, ${m.order.length} sentences ${JSON.stringify(kinds)} in ${Date.now() - t0} ms`);

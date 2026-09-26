@@ -63,6 +63,7 @@ export interface PageInfo {
 
 export interface DocModel {
   v: 1;
+  ev?: number; // engine version that produced this model
   pages: PageInfo[];
   sentences: Record<string, Sentence>;
   order: string[]; // reading order across the document

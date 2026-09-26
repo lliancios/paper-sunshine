@@ -52,7 +52,10 @@ const TERMINAL = /[.?!。？！]["”’)\]]?$/;
 const TERMINAL_OR_COLON = /[.?!:。？！：]["”’)\]]?$/;
 const CAPTION_RE = /^(fig\.?|figure|table|tab\.|exhibit|chart|appendix|panel)\s*[\dA-Z]/i;
 const BOILERPLATE =
-  /(This content downloaded from|All use subject to|about\.jstor\.org\/terms|JSTOR is a not-for-profit|Your use of the JSTOR archive|Downloaded from|For personal use only|Copyright ©|All rights reserved|Terms of Use)/i;
+  /(This content downloaded from|All use subject to|about\.jstor\.org\/terms|JSTOR is a not-for-profit|Your use of the JSTOR archive|Accessibility support|collaborating with JSTOR|Stable URL|Linked references are available|Terms and Conditions of Use|Published by:|sci-hub|Downloaded from|For personal use only|Copyright ©|All rights reserved|Terms of Use)/i;
+
+/** Bumped when parsing changes; papers parsed by an older engine can be re-parsed. */
+export const ENGINE_VERSION = 2;
 const LETTER = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ぀-ヿ一-鿿가-힯]/g;
 
 function mode(values: [number, number][]): number {
@@ -193,7 +196,7 @@ function addLine(b: WBlock, line: Line) {
   b.y1 = Math.max(b.y1, line.y1);
 }
 
-function isBreak(b: WBlock, line: Line): boolean {
+function isBreak(b: WBlock, line: Line, bodyFs: number): boolean {
   const last = b.lines[b.lines.length - 1];
   const fs = b.fs;
   const lastText = last.text.trimEnd();
@@ -208,12 +211,14 @@ function isBreak(b: WBlock, line: Line): boolean {
     return true;
   }
   if (endsTerminal && last.x1 < b.x1 - 2.5 * fs && n >= 2) return true;
+  // Multi-line titles set in a large font stay together even when centred lines differ in width.
+  if (last.fs >= bodyFs * 1.15 && line.fs >= bodyFs * 1.15 && Math.abs(line.fs - last.fs) <= 0.25 * last.fs && !TERMINAL.test(lastText)) return false;
   if (n === 1) {
     const lastW = last.x1 - last.x0;
     const lineW = line.x1 - line.x0;
     if (!endsTerminal && lastW < 0.72 * lineW) return true; // heading above a paragraph
     if (last.font !== line.font && lastW < 0.9 * lineW) return true;
-    if (last.fs > line.fs * 1.12) return true;
+    if (last.fs > line.fs * 1.2) return true;
   }
   // A long paragraph followed by a clearly shorter, centred line is a heading.
   const lineW = line.x1 - line.x0;
@@ -226,7 +231,7 @@ function isBreak(b: WBlock, line: Line): boolean {
   return false;
 }
 
-function buildBlocks(lines: Line[], p: number): WBlock[] {
+function buildBlocks(lines: Line[], p: number, bodyFs: number): WBlock[] {
   const blocks: WBlock[] = [];
   for (const line of lines) {
     let best: WBlock | null = null;
@@ -235,7 +240,9 @@ function buildBlocks(lines: Line[], p: number): WBlock[] {
     for (let i = start; i < blocks.length; i++) {
       const b = blocks[i];
       const last = b.lines[b.lines.length - 1];
-      if (Math.abs(line.fs - b.fs) > 0.2 * b.fs) continue;
+      // Loose on purpose: OCR text layers jitter by a point between lines; titles even more.
+      const big = line.fs >= bodyFs * 1.15 && b.fs >= bodyFs * 1.15;
+      if (Math.abs(line.fs - b.fs) > (big ? 0.3 : 0.2) * b.fs) continue;
       const pitch = line.base - last.base;
       if (pitch < 0.5 * b.fs) continue;
       const maxPitch = b.lines.length >= 2 ? Math.max(b.pitch * 1.35, b.fs * 1.1) : b.fs * 2.3;
@@ -248,7 +255,7 @@ function buildBlocks(lines: Line[], p: number): WBlock[] {
         bestPitch = pitch;
       }
     }
-    if (best && !isBreak(best, line)) addLine(best, line);
+    if (best && !isBreak(best, line, bodyFs)) addLine(best, line);
     else blocks.push(newBlock(line, p));
   }
   for (const b of blocks) {
@@ -373,10 +380,11 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
   const ctx: Ctx = { bodyFs, bodyFont };
 
   const pageBlocks: WBlock[][] = pageLines.map((lines, i) => {
-    const blocks = buildBlocks(lines, i);
+    const blocks = buildBlocks(lines, i, bodyFs);
     for (const b of blocks) b.kind = classify(b, pages[i], ctx);
     return orderBlocks(blocks, pages[i].w);
   });
+  markRunningHeaders(pageBlocks, pages, bodyFs);
 
   const docBlocks: WBlock[] = [];
   pageBlocks.forEach((blocks, p) => {
@@ -394,6 +402,9 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
   // normally ends them, unless the next block clearly continues the sentence
   // (starts in lower case), e.g. across a figure placed at the top of a page.
   const openPara = new Map<number, { flow: WBlock[]; block: WBlock; headingAfter: boolean }>();
+  // Footnotes: smaller than body text and low on the page. Body paragraphs
+  // never flow into them (and vice versa).
+  const isFoot = (b: WBlock) => b.fs <= bodyFs * 0.95 && b.y0 > 0.6 * pages[b.p].h;
   for (const b of docBlocks) {
     if (b.kind === "skip") continue;
     if (b.kind === "para") {
@@ -401,6 +412,7 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
       let target: WBlock[] | null = null;
       for (const [fsKey, entry] of openPara) {
         if (Math.abs(fsKey - b.fs) > 0.12 * b.fs) continue;
+        if (isFoot(b) !== isFoot(entry.block)) continue;
         if (TERMINAL_OR_COLON.test(entry.block.text.trim())) continue;
         if (entry.headingAfter && !startsLower) continue;
         const eb = entry.block;
@@ -412,7 +424,7 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
       }
       if (target) target.push(b);
       else flows.push((target = [b]));
-      for (const k of [...openPara.keys()]) if (Math.abs(k - b.fs) <= 0.12 * b.fs) openPara.delete(k);
+      for (const k of [...openPara.keys()]) if (Math.abs(k - b.fs) <= 0.12 * b.fs && isFoot(openPara.get(k)!.block) === isFoot(b)) openPara.delete(k);
       openPara.set(b.fs, { flow: target, block: b, headingAfter: false });
     } else if (b.kind === "heading") {
       flows.push([b]);
@@ -500,8 +512,7 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
   }));
 
   // 5. document info
-  const pageNumbers = detectPageNumbers(pageBlocks, pages);
-  const pageOffset = votePageOffset(pageNumbers);
+  const { pageNumbers, pageOffset } = detectPageNumbers(pageBlocks, pages);
   const firstText = docBlocks
     .filter((b) => b.p < 3)
     .map((b) => b.text)
@@ -511,6 +522,7 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
 
   return {
     v: 1,
+    ev: ENGINE_VERSION,
     pages: pageInfos,
     sentences,
     order,
@@ -545,42 +557,69 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
 
 // ------------------------------------------------------ doc info ----
 
-function detectPageNumbers(pageBlocks: WBlock[][], pages: RawPage[]): (number | null)[] {
-  return pageBlocks.map((blocks, i) => {
-    const H = pages[i].h;
-    const cands: number[] = [];
+/**
+ * Running headers/footers ("76 / Journal of Marketing, April 2003") repeat on
+ * many pages near the top or bottom edge; OCR noise in digits is ignored.
+ */
+function markRunningHeaders(pageBlocks: WBlock[][], pages: RawPage[], bodyFs: number) {
+  const keyOf = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^a-z\u4e00-\u9fff]+/g, " ")
+      .split(" ")
+      .filter((w) => w.length > 1)
+      .join(" ");
+  const pagesByKey = new Map<string, Set<number>>();
+  const edge = (b: WBlock) => {
+    const H = pages[b.p].h;
+    return (b.y1 < 0.14 * H || b.y0 > 0.86 * H) && b.text.length < 140 && b.lines.length <= 2 && b.fs <= bodyFs * 1.25;
+  };
+  for (const blocks of pageBlocks)
     for (const b of blocks) {
-      if (b.y1 > 0.1 * H && b.y0 < 0.9 * H) continue;
+      if (!edge(b)) continue;
+      const k = keyOf(b.text);
+      if (k.length < 4) continue;
+      const set = pagesByKey.get(k) ?? new Set<number>();
+      set.add(b.p);
+      pagesByKey.set(k, set);
+    }
+  const need = Math.max(3, Math.ceil(pages.length * 0.25));
+  for (const blocks of pageBlocks)
+    for (const b of blocks) if (edge(b) && (pagesByKey.get(keyOf(b.text))?.size ?? 0) >= need) b.kind = "skip";
+}
+
+function detectPageNumbers(pageBlocks: WBlock[][], pages: RawPage[]): { pageNumbers: (number | null)[]; pageOffset: number | null } {
+  const candsByPage = pageBlocks.map((blocks, i) => {
+    const H = pages[i].h;
+    const cands = new Set<number>();
+    for (const b of blocks) {
+      if (b.y1 > 0.14 * H && b.y0 < 0.86 * H) continue;
       const t = b.text.trim();
-      if (t.length > 160) continue;
-      const range = t.match(/(\d{1,4})\s*[-–]\s*\d{1,4}$/);
-      if (range) {
-        cands.push(Number(range[1]));
-        continue;
-      }
-      const m1 = t.match(/^(\d{1,4})\b/);
-      const m2 = t.match(/\b(\d{1,4})$/);
-      for (const m of [m1, m2]) {
+      if (t.length > 160 || BOILERPLATE.test(t)) continue;
+      const range = t.match(/(\d{1,4})\s*[-–]\s*\d{1,4}\s*$/);
+      if (range) cands.add(Number(range[1]));
+      for (const m of [t.match(/^\s*(\d{1,4})(?!\d)/), t.match(/(?<!\d)(\d{1,4})\s*$/)]) {
         if (!m) continue;
         const n = Number(m[1]);
         if (n >= 1900 && n <= 2099 && t.length > 4) continue;
-        if (n > 0) cands.push(n);
+        if (n > 0) cands.add(n);
       }
     }
-    return cands.length ? cands[0] : null;
+    return cands;
   });
-}
-
-function votePageOffset(nums: (number | null)[]): number | null {
   const votes = new Map<number, number>();
-  nums.forEach((n, i) => {
-    if (n != null) votes.set(n - i, (votes.get(n - i) ?? 0) + 1);
+  candsByPage.forEach((cands, i) => {
+    for (const off of new Set([...cands].map((n) => n - i))) votes.set(off, (votes.get(off) ?? 0) + 1);
   });
   let best: number | null = null;
   let bc = 0;
-  for (const [off, c] of votes) if (c > bc) (best = off), (bc = c);
-  const need = nums.length <= 2 ? 1 : 2;
-  return bc >= need ? best : null;
+  for (const [off, c] of votes) if (c > bc || (c === bc && best !== null && off > best)) (best = off), (bc = c);
+  const pageOffset = bc >= (pages.length <= 2 ? 1 : 2) ? best : null;
+  const pageNumbers = candsByPage.map((cands, i) => {
+    if (pageOffset !== null && cands.has(i + pageOffset)) return i + pageOffset;
+    return cands.size ? [...cands][0] : null;
+  });
+  return { pageNumbers, pageOffset };
 }
 
 export function findDoi(text: string): string | undefined {

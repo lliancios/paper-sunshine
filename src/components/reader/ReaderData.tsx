@@ -19,6 +19,7 @@ export interface ReaderData {
   paper: Paper;
   model: DocModel;
   trans: Map<string, Trans>;
+  cats: Map<string, string>; // auto-highlight category per sentence
   pagesDone: Set<number>;
   highlights: Highlight[];
   explanations: Explanation[];
@@ -55,6 +56,7 @@ export function useLoadReaderData(paperId: string): ReaderData | null | "missing
   const paper = useLiveQuery(() => db.papers.get(paperId), [paperId], null);
   const modelRec = useLiveQuery(() => db.models.get(paperId), [paperId], null);
   const transRecs = useLiveQuery(() => db.translations.where("paperId").equals(paperId).toArray(), [paperId]);
+  const hlRecs = useLiveQuery(() => db.autohl.where("paperId").equals(paperId).toArray(), [paperId]);
   const statusRecs = useLiveQuery(() => db.pageStatus.where("paperId").equals(paperId).toArray(), [paperId]);
   const highlights = useLiveQuery(() => db.highlights.where("paperId").equals(paperId).filter((h) => !h.deleted).toArray(), [paperId]);
   const explanations = useLiveQuery(() => db.explanations.where("paperId").equals(paperId).filter((e) => !e.deleted).toArray(), [paperId]);
@@ -62,7 +64,13 @@ export function useLoadReaderData(paperId: string): ReaderData | null | "missing
   const job = useLiveQuery(() => db.jobs.get(paperId), [paperId]);
 
   const model = modelRec?.model;
-  const trans = useMemo(() => new Map((transRecs ?? []).map((r) => [r.sid, { t: r.t, c: r.c, mock: r.mock }])), [transRecs]);
+  const trans = useMemo(() => new Map((transRecs ?? []).filter((r) => r.t).map((r) => [r.sid, { t: r.t, c: r.c, mock: r.mock }])), [transRecs]);
+  const cats = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of transRecs ?? []) if (r.c) m.set(r.sid, r.c); // legacy per-page categories
+    for (const r of hlRecs ?? []) m.set(r.sid, r.c);
+    return m;
+  }, [transRecs, hlRecs]);
   const pagesDone = useMemo(() => new Set((statusRecs ?? []).filter((s) => s.done).map((s) => s.page)), [statusRecs]);
   const hlBySid = useMemo(() => {
     const m = new Map<string, Highlight[]>();
@@ -100,6 +108,7 @@ export function useLoadReaderData(paperId: string): ReaderData | null | "missing
       paper,
       model,
       trans,
+      cats,
       pagesDone,
       highlights: highlights ?? [],
       explanations: explanations ?? [],
@@ -111,7 +120,7 @@ export function useLoadReaderData(paperId: string): ReaderData | null | "missing
       settings,
       catColor,
     };
-  }, [paperId, paper, modelRec, model, trans, pagesDone, highlights, explanations, hlBySid, exBySid, piecesByPage, overview, job, settings, catColor]);
+  }, [paperId, paper, modelRec, model, trans, cats, pagesDone, highlights, explanations, hlBySid, exBySid, piecesByPage, overview, job, settings, catColor]);
 }
 
 export const ReaderDataProvider = Ctx.Provider;

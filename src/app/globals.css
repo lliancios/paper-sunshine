@@ -14,8 +14,17 @@
   --accent-strong: #d97706;
   --accent-soft: #fff6e0;
   --reader: #eef0f3;
-  --hover-sent: rgba(251, 191, 36, 0.22);
+  --hover-bg: linear-gradient(180deg, rgba(148, 163, 184, 0.1), rgba(100, 116, 139, 0.22));
+  --hover-edge: rgba(100, 116, 139, 0.45);
   --shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+}
+:root[data-hover="green"] {
+  --hover-bg: linear-gradient(180deg, rgba(52, 211, 153, 0.12), rgba(16, 185, 129, 0.22));
+  --hover-edge: rgba(16, 185, 129, 0.6);
+}
+:root[data-hover="amber"] {
+  --hover-bg: rgba(251, 191, 36, 0.22);
+  --hover-edge: rgba(245, 158, 11, 0.55);
 }
 .dark {
   --bg: #16171a;
@@ -29,7 +38,6 @@
   --accent-strong: #f59e0b;
   --accent-soft: #3a2e12;
   --reader: #0f1012;
-  --hover-sent: rgba(251, 191, 36, 0.28);
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
@@ -116,8 +124,11 @@ button:disabled {
   mix-blend-mode: multiply;
 }
 .ps-hover {
-  background: var(--hover-sent);
-  outline: 1px solid rgba(245, 158, 11, 0.55);
+  background: var(--hover-bg);
+  border-radius: 2px;
+}
+.ps-hover.is-first {
+  box-shadow: inset 2px 0 0 var(--hover-edge);
 }
 .ps-flash {
   animation: ps-flash 1.6s ease-out 1;
@@ -158,8 +169,7 @@ button:disabled {
   cursor: text;
 }
 .ps-sent.is-hover {
-  background: var(--hover-sent);
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.45);
+  background: var(--hover-bg);
 }
 .ps-sent.is-flash {
   animation: ps-flash 1.6s ease-out 1;
@@ -241,4 +251,18 @@ button:disabled {
   to {
     background-position: -200% 0;
   }
+}
+
+/* one-page summary */
+.ps-onepager h2 {
+  font-size: 1.02rem;
+  margin-top: 1.3em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--line);
+}
+.ps-onepager h2:first-child {
+  margin-top: 0;
+}
+.ps-onepager {
+  font-size: 0.92rem;
 }

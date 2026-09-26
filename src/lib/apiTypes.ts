@@ -76,10 +76,35 @@ export interface RerankItem {
   reason: string;
 }
 
-export type JsonTaskRequest = TranslateRequest | OverviewRequest | QuizRequest | RerankRequest;
+/** One request per paper: reading guide + glossary + every auto highlight. */
+export interface GuideRequest {
+  task: "guide";
+  title?: string;
+  lines: string; // "## heading" or "<sid>\t<sentence>" per line, whole paper
+  rolePrompt: string;
+  targetLanguage: string;
+  categories: Category[];
+  autoHighlight: boolean;
+  model?: string;
+}
+export interface Guide extends Overview {
+  highlights: { id: string; c: string }[];
+}
+
+/** Streamed translation of several pages at once; output is "<sid>\t<translation>" lines. */
+export interface TranslateLinesRequest {
+  paperTitle?: string;
+  blocks: TranslateBlock[];
+  glossary: { en: string; zh: string }[];
+  rolePrompt: string;
+  targetLanguage: string;
+  model?: string;
+}
+
+export type JsonTaskRequest = TranslateRequest | OverviewRequest | GuideRequest | QuizRequest | RerankRequest;
 
 export interface StreamRequest {
-  task: "explain" | "figure" | "model" | "chat" | "summary";
+  task: "explain" | "figure" | "model" | "chat" | "summary" | "onepager";
   targetLanguage: string;
   paperTitle?: string;
   paperText?: string; // full text (chat / summary)
@@ -127,6 +152,7 @@ export interface HealthResponse {
   authorized: boolean;
   gemini: boolean;
   openalex: boolean;
+  providers: Record<string, boolean>;
   models: { translate: string; chat: string };
   version: string;
 }

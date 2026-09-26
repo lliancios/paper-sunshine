@@ -1,6 +1,7 @@
 import type { HealthResponse } from "@/lib/apiTypes";
 import { isAuthorized } from "@/lib/server/auth";
-import { hasGemini, modelFor } from "@/lib/server/gemini";
+import { hasGemini } from "@/lib/server/gemini";
+import { DEFAULT_CHAT_MODEL, DEFAULT_TRANSLATE_MODEL, availableProviders } from "@/lib/server/llm";
 import { hasOpenAlex } from "@/lib/server/openalex";
 import { APP_VERSION } from "@/lib/version";
 
@@ -11,7 +12,8 @@ export async function GET(req: Request) {
     authorized: isAuthorized(req),
     gemini: hasGemini(),
     openalex: hasOpenAlex(),
-    models: { translate: modelFor("translate"), chat: modelFor("chat") },
+    providers: availableProviders(),
+    models: { translate: DEFAULT_TRANSLATE_MODEL, chat: DEFAULT_CHAT_MODEL },
     version: APP_VERSION,
   };
   return Response.json(body, { headers: { "cache-control": "no-store" } });

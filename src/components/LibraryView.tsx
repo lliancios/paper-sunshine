@@ -5,7 +5,8 @@ import {
   ChevronDown,
   Clock,
   ExternalLink,
-  FolderPlus,
+  FolderInput,
+  Pencil,
   Info,
   LayoutGrid,
   Library,
@@ -54,6 +55,7 @@ export function LibraryView() {
   const [page, setPage] = useState(1);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [newFolder, setNewFolder] = useState<string | null>(null);
 
   const papers = useLiveQuery(() => db.papers.filter((p) => !p.deleted).toArray(), []);
   const folders = useLiveQuery(() => db.folders.filter((f) => !f.deleted).toArray(), []);
@@ -102,6 +104,7 @@ export function LibraryView() {
     <div
       className="flex h-dvh"
       onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setDragging(true);
       }}
@@ -109,6 +112,7 @@ export function LibraryView() {
         if (e.currentTarget === e.target) setDragging(false);
       }}
       onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setDragging(false);
         void onFiles(e.dataTransfer.files);
@@ -126,23 +130,36 @@ export function LibraryView() {
           <NavBtn icon={<Star size={17} />} label="已儲存" onClick={() => setReader({ savedOpen: true })} />
           <div className="flex items-center">
             <NavBtn icon={<Library size={17} />} label="文獻庫" active={sort === "added" && !folderId} onClick={() => (setSort("added"), router.push("/"))} />
-            <IconButton
-              title="新增資料夾"
-              className="ml-1 text-accent-strong"
-              onClick={async () => {
-                const name = prompt("資料夾名稱");
-                if (name?.trim()) await db.folders.put({ id: uid(), name: name.trim(), createdAt: Date.now(), updatedAt: Date.now() });
-              }}
-            >
+            <IconButton title="新增資料夾" className="ml-1 text-accent-strong" onClick={() => setNewFolder("")}>
               <Plus size={16} />
             </IconButton>
           </div>
           <div className="ml-4 space-y-0.5 border-l border-line pl-2">
             {(folders ?? []).map((f) => (
-              <Link key={f.id} href={`/?folder=${f.id}`} className={cx("block truncate rounded-md px-2 py-1.5 text-sm hover:bg-muted", f.id === folderId && "bg-muted font-medium")}>
-                {f.name}
-              </Link>
+              <FolderItem key={f.id} f={f} active={f.id === folderId} count={(papers ?? []).filter((p) => p.folderId === f.id).length} />
             ))}
+            {newFolder !== null && (
+              <input
+                autoFocus
+                value={newFolder}
+                placeholder="資料夾名稱，Enter 建立"
+                onChange={(e) => setNewFolder(e.target.value)}
+                onBlur={() => setNewFolder(null)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Escape") setNewFolder(null);
+                  if (e.key === "Enter" && newFolder.trim()) {
+                    await createFolder(newFolder);
+                    setNewFolder(null);
+                  }
+                }}
+                className="w-full rounded-md border border-accent bg-bg px-2 py-1 text-sm outline-none"
+              />
+            )}
+            {folders && !folders.length && newFolder === null && (
+              <button type="button" onClick={() => setNewFolder("")} className="px-2 py-1 text-left text-xs text-ink-faint hover:text-ink">
+                ＋ 建立第一個資料夾，例如「論文核心文獻」
+              </button>
+            )}
           </div>
         </nav>
         <div className="mt-auto space-y-0.5 border-t border-line px-3 py-3 text-sm">
@@ -159,7 +176,20 @@ export function LibraryView() {
             <div className="flex items-center gap-2 md:hidden">
               <SunMark size={28} />
             </div>
-            <h1 className="text-2xl font-bold">{folder ? folder.name : "文獻庫"}</h1>
+            <h1 className="text-2xl font-bold">
+              {folder ? (
+                <>
+                  <Link href="/" className="text-ink-faint hover:text-ink">
+                    文獻庫
+                  </Link>
+                  <span className="mx-2 text-ink-faint">/</span>
+                  {folder.name}
+                </>
+              ) : (
+                "文獻庫"
+              )}
+            </h1>
+            <span className="text-sm text-ink-faint">{list.length} 篇</span>
             <span title="文獻會存在這台裝置；v0.2.0 起跨裝置同步" className="text-ink-faint">
               <Info size={17} />
             </span>
@@ -219,15 +249,7 @@ export function LibraryView() {
                   <div className="absolute right-0 top-11 z-30 w-48 overflow-hidden rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]" onMouseLeave={() => setMenuOpen(false)}>
                     <MenuItem onClick={() => (setMenuOpen(false), fileRef.current?.click())}>上傳 PDF</MenuItem>
                     <MenuItem onClick={() => (setMenuOpen(false), setDoiOpen(true))}>以 DOI 加入</MenuItem>
-                    <MenuItem
-                      onClick={async () => {
-                        setMenuOpen(false);
-                        const name = prompt("資料夾名稱");
-                        if (name?.trim()) await db.folders.put({ id: uid(), name: name.trim(), createdAt: Date.now(), updatedAt: Date.now() });
-                      }}
-                    >
-                      新增資料夾
-                    </MenuItem>
+                    <MenuItem onClick={() => (setMenuOpen(false), setNewFolder(""))}>新增資料夾</MenuItem>
                   </div>
                 )}
               </div>
@@ -293,6 +315,113 @@ export function LibraryView() {
   );
 }
 
+async function createFolder(name: string) {
+  const now = Date.now();
+  await db.folders.put({ id: uid(), name: name.trim(), createdAt: now, updatedAt: now });
+}
+
+function FolderItem({ f, active, count }: { f: { id: string; name: string }; active: boolean; count: number }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(f.name);
+  const [over, setOver] = useState(false);
+  if (editing)
+    return (
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={async () => {
+          setEditing(false);
+          if (name.trim() && name !== f.name) await db.folders.update(f.id, { name: name.trim(), updatedAt: Date.now() });
+        }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        className="w-full rounded-md border border-accent bg-bg px-2 py-1 text-sm outline-none"
+      />
+    );
+  return (
+    <div
+      className={cx("group/f flex items-center rounded-md", active && "bg-muted font-medium", over && "bg-accent-soft ring-1 ring-accent")}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("text/ps-paper")) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={async (e) => {
+        setOver(false);
+        const id = e.dataTransfer.getData("text/ps-paper");
+        if (!id) return;
+        e.preventDefault();
+        await db.papers.update(id, { folderId: f.id, updatedAt: Date.now() });
+        toast(`已移到「${f.name}」`);
+      }}
+    >
+      <Link href={`/?folder=${f.id}`} className="min-w-0 flex-1 truncate px-2 py-1.5 text-sm hover:underline">
+        {f.name}
+      </Link>
+      <span className="px-1 text-xs text-ink-faint group-hover/f:hidden">{count || ""}</span>
+      <div className="hidden pr-1 group-hover/f:flex">
+        <button type="button" title="重新命名" onClick={() => setEditing(true)} className="p-1 text-ink-faint hover:text-ink">
+          <Pencil size={13} />
+        </button>
+        <button
+          type="button"
+          title="刪除資料夾（論文會留在文獻庫）"
+          onClick={async () => {
+            if (!confirm(`刪除資料夾「${f.name}」？裡面的論文會留在文獻庫。`)) return;
+            await db.papers.where("folderId").equals(f.id).modify({ folderId: null });
+            await db.folders.update(f.id, { deleted: true, updatedAt: Date.now() });
+          }}
+          className="p-1 text-ink-faint hover:text-red-600"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FolderMenu({ p, folders, update }: { p: Paper; folders: { id: string; name: string }[]; update: (id: string, patch: Partial<Paper>) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  return (
+    <div className="relative">
+      <button type="button" title="移到資料夾" onClick={() => setOpen((v) => !v)} className="p-1 text-ink-faint hover:text-ink">
+        <FolderInput size={15} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-7 z-30 w-52 rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]" onMouseLeave={() => setOpen(false)}>
+          <div className="px-3 py-1 text-xs text-ink-faint">移到資料夾</div>
+          <button type="button" onClick={() => (update(p.id, { folderId: null }), setOpen(false))} className={cx("block w-full px-3 py-1.5 text-left hover:bg-muted", !p.folderId && "font-medium")}>
+            （不放資料夾）
+          </button>
+          {folders.map((f) => (
+            <button key={f.id} type="button" onClick={() => (update(p.id, { folderId: f.id }), setOpen(false))} className={cx("block w-full truncate px-3 py-1.5 text-left hover:bg-muted", p.folderId === f.id && "font-medium text-accent-strong")}>
+              {f.name}
+            </button>
+          ))}
+          <div className="border-t border-line px-2 pt-1.5">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key !== "Enter" || !name.trim()) return;
+                const id = uid();
+                const now = Date.now();
+                await db.folders.put({ id, name: name.trim(), createdAt: now, updatedAt: now });
+                update(p.id, { folderId: id });
+                setOpen(false);
+              }}
+              placeholder="＋ 新資料夾，Enter"
+              className="mb-1 w-full rounded-md border border-line bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NavBtn({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) {
   return (
     <button type="button" onClick={onClick} className={cx("flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-muted", active && "bg-muted font-medium")}>
@@ -353,7 +482,15 @@ function Row({
   const attachRef = useRef<HTMLInputElement>(null);
   const open = () => (p.hasFile ? router.push(`/read/${p.id}`) : p.doi ? window.open(`https://doi.org/${p.doi}`, "_blank") : attachRef.current?.click());
   return (
-    <tr className="group cursor-pointer border-b border-line hover:bg-soft" onClick={open}>
+    <tr
+      className="group cursor-pointer border-b border-line hover:bg-soft"
+      onClick={open}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/ps-paper", p.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+    >
       <td className="max-w-0 px-3 py-3">
         <div className="truncate font-medium">{p.title}</div>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-faint">
@@ -390,22 +527,8 @@ function Row({
       </td>
       <td className="px-3 py-3 text-ink-soft">{new Date(p.addedAt).toLocaleDateString("zh-TW")}</td>
       <td className="px-1 py-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex opacity-0 transition-opacity group-hover:opacity-100">
-          <select
-            title="移動到資料夾"
-            className="w-7 appearance-none rounded bg-transparent text-transparent"
-            value={p.folderId ?? ""}
-            onChange={(e) => update(p.id, { folderId: e.target.value || null })}
-            style={{ backgroundImage: "none" }}
-          >
-            <option value="">（無資料夾）</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <FolderPlus size={15} className="pointer-events-none -ml-6 mr-2 mt-0.5 text-ink-faint" />
+        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <FolderMenu p={p} folders={folders} update={update} />
           <button
             type="button"
             title="刪除"

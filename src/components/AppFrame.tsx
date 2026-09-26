@@ -18,7 +18,10 @@ interface AppState {
 export const useApp = create<AppState>((set) => ({ settingsOpen: false, health: null, set: (p) => set(p) }));
 
 function useTheme() {
-  const { theme } = useSettings();
+  const { theme, hoverStyle } = useSettings();
+  useEffect(() => {
+    document.documentElement.dataset.hover = hoverStyle ?? "gray";
+  }, [hoverStyle]);
   useEffect(() => {
     try {
       localStorage.setItem("ps-theme", theme);

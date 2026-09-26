@@ -1,13 +1,14 @@
 "use client";
 import { Copy, Languages, Loader2, MessageSquarePlus, MessagesSquare, Quote, RefreshCw, ScanSearch, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { aiJson, aiStream } from "@/lib/api";
+import { aiJson, aiStream, friendlyError } from "@/lib/api";
 import type { TranslateResponse } from "@/lib/apiTypes";
 import { printedPage, quoteWithCitation } from "@/lib/citation";
 import { db, uid } from "@/lib/db";
 import { HIGHLIGHT_COLORS } from "@/lib/defaults";
 import { renderRegion, thumbnail } from "@/lib/pdf";
 import { clearSelection, type SelectionInfo } from "@/lib/selection";
+import { models } from "@/lib/settings";
 import { useReader } from "@/store/reader";
 import { Markdown, copyText, cx, toast } from "../ui";
 import { contextFor, createHighlight, overviewText, pageOfRange, softDelete } from "./actions";
@@ -191,7 +192,7 @@ export function ExplainPopover() {
         selection: sel.text,
         context: contextFor(data.model, sids),
         side: sel.side,
-        model: data.settings.modelChat || undefined,
+        model: models(data.settings).chat,
       },
       setAnswer,
       ctrl.signal,
@@ -211,7 +212,7 @@ export function ExplainPopover() {
           updatedAt: now,
         });
       })
-      .catch((e) => !ctrl.signal.aborted && setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => !ctrl.signal.aborted && setErr(friendlyError(e)))
       .finally(() => setBusy(false));
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,13 +269,13 @@ export function TranslatePopover() {
         targetLanguage: data.settings.targetLanguage,
         categories: data.settings.categories,
         autoHighlight: false,
-        model: data.settings.modelTranslate || undefined,
+        model: models(data.settings).translate,
       });
       await db.translations.bulkPut(
         res.items.map((i) => ({ paperId: data.paperId, sid: i.id, page: data.model.sentences[i.id]?.p ?? 0, t: i.t, c: data.trans.get(i.id)?.c ?? null, mock: res.mock })),
       );
     } catch (e) {
-      toast(`翻譯失敗：${e instanceof Error ? e.message : e}`, "error");
+      toast(`翻譯失敗：${friendlyError(e)}`, "error");
     } finally {
       setBusy(false);
     }
@@ -350,7 +351,7 @@ export function FigurePanel() {
           researchContext: data.settings.researchContext,
           image: img.base64,
           caption: fig.caption,
-          model: data.settings.modelChat || undefined,
+          model: models(data.settings).chat,
         },
         setAnswer,
         ctrl.signal,
@@ -369,7 +370,7 @@ export function FigurePanel() {
         updatedAt: now,
       });
     } catch (e) {
-      if (!ctrl.signal.aborted) setAnswer(`**錯誤**：${e instanceof Error ? e.message : e}`);
+      if (!ctrl.signal.aborted) setAnswer(`**無法完成**：${friendlyError(e)}`);
     } finally {
       setBusy(false);
     }

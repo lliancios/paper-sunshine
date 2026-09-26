@@ -43,6 +43,7 @@ interface ReaderState {
   outlineOpen: boolean;
   infoOpen: boolean;
   searchOpen: boolean;
+  onepagerOpen: boolean;
   showAuto: boolean;
   scrollToPage: ((page: number, y?: number) => void) | null;
   chatDraft: string | null;
@@ -70,6 +71,7 @@ export const useReader = create<ReaderState>((set) => ({
   outlineOpen: false,
   infoOpen: false,
   searchOpen: false,
+  onepagerOpen: false,
   showAuto: true,
   scrollToPage: null,
   chatDraft: null,

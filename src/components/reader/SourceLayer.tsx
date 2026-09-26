@@ -6,6 +6,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import { rectsForRange } from "@/engine/geometry";
 import type { Block, Rect } from "@/engine/types";
 import { useReader } from "@/store/reader";
+import { cx } from "../ui";
 import { hlColor, rgba, useReaderData } from "./ReaderData";
 
 let measureCtx: CanvasRenderingContext2D | null = null;
@@ -35,7 +36,7 @@ export const SourceLayer = memo(function SourceLayer({ index, scale }: { index: 
 });
 
 function StaticMarks({ index, scale }: { index: number; scale: number }) {
-  const { model, trans, highlights, explanations, settings, catColor, pagesDone } = useReaderData();
+  const { model, cats, highlights, explanations, settings, catColor } = useReaderData();
   const showAuto = useReader((s) => s.showAuto);
   const scheme = settings.colorScheme;
 
@@ -44,10 +45,11 @@ function StaticMarks({ index, scale }: { index: number; scale: number }) {
     const onPage = (sid: string) => model.sentences[sid]?.pieces.some((p) => p.p === index);
     // auto highlights: whole sentences
     if (showAuto && settings.autoHighlight) {
-      for (const [sid, t] of trans) {
-        if (!t.c || !onPage(sid)) continue;
+      for (const [sid, c] of cats) {
+        if (!onPage(sid)) continue;
         const s = model.sentences[sid];
-        const color = catColor(t.c);
+        if (!s) continue;
+        const color = catColor(c);
         for (const r of rectsForRange(s, 0, s.text.length, index)) {
           out.push({
             r,
@@ -97,8 +99,7 @@ function StaticMarks({ index, scale }: { index: number; scale: number }) {
       out.push({ r: e.rect, style: { border: "1.5px dashed rgba(139,92,246,0.7)", borderRadius: 6 } });
     }
     return out;
-    // pagesDone keeps auto marks fresh as pages finish
-  }, [model, trans, highlights, explanations, index, showAuto, settings.autoHighlight, scheme, catColor, pagesDone]);
+  }, [model, cats, highlights, explanations, index, showAuto, settings.autoHighlight, scheme, catColor]);
 
   return (
     <div className="ps-marks">
@@ -119,29 +120,42 @@ function StaticMarks({ index, scale }: { index: number; scale: number }) {
   );
 }
 
+/** Line boxes of a sentence, clipped so consecutive lines never overlap. */
+function lineBoxes(rects: Rect[]): Rect[] {
+  const out = rects.map((r) => [...r] as Rect).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  for (let i = 1; i < out.length; i++) {
+    const a = out[i - 1];
+    const b = out[i];
+    const hOverlap = Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0;
+    if (hOverlap && b[1] < a[3]) {
+      const mid = (a[3] + b[1]) / 2;
+      a[3] = mid;
+      b[1] = mid;
+    }
+  }
+  return out;
+}
+
 function HoverMarks({ index, scale }: { index: number; scale: number }) {
   const { model } = useReaderData();
   const hoverSid = useReader((s) => s.hoverSid);
   const flash = useReader((s) => s.flash);
   const rects = useMemo(() => {
     const s = hoverSid ? model.sentences[hoverSid] : null;
-    return s ? rectsForRange(s, 0, s.text.length, index) : [];
+    return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
   }, [hoverSid, model, index]);
   const flashRects = useMemo(() => {
     const s = flash?.sid ? model.sentences[flash.sid] : null;
-    return s ? rectsForRange(s, 0, s.text.length, index) : [];
+    return s ? lineBoxes(rectsForRange(s, 0, s.text.length, index)) : [];
   }, [flash, model, index]);
+  const box = (r: Rect) => ({ left: r[0] * scale - 1, top: r[1] * scale, width: (r[2] - r[0]) * scale + 2, height: (r[3] - r[1]) * scale });
   return (
     <div className="ps-marks">
       {rects.map((r, i) => (
-        <div key={`h${i}`} className="ps-hover" style={{ left: r[0] * scale - 2, top: r[1] * scale - 2, width: (r[2] - r[0]) * scale + 4, height: (r[3] - r[1]) * scale + 4 }} />
+        <div key={`h${i}`} className={cx("ps-hover", i === 0 && "is-first")} style={box(r)} />
       ))}
       {flashRects.map((r, i) => (
-        <div
-          key={`f${flash?.at}-${i}`}
-          className="ps-flash"
-          style={{ left: r[0] * scale - 2, top: r[1] * scale - 2, width: (r[2] - r[0]) * scale + 4, height: (r[3] - r[1]) * scale + 4 }}
-        />
+        <div key={`f${flash?.at}-${i}`} className="ps-flash" style={box(r)} />
       ))}
     </div>
   );

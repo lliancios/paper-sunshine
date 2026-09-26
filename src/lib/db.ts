@@ -43,6 +43,7 @@ export interface Paper {
   pageOffset?: number | null; // manual override: printed page = index + offset
   detectedPageOffset?: number | null;
   metaDone?: boolean;
+  metaV?: number; // lookup strategy version
   hash?: string;
   deleted?: boolean;
 }
@@ -158,14 +159,49 @@ export interface SavedRec {
   paperId?: string;
   deleted?: boolean;
 }
-export type JobStage = "queued" | "parsing" | "meta" | "overview" | "translating" | "related" | "done" | "error";
+export type JobStage = "queued" | "parsing" | "meta" | "overview" | "translating" | "related" | "onepager" | "paused" | "done" | "error";
 export interface JobRec {
   paperId: string;
   stage: JobStage;
   pagesDone: number;
   pagesTotal: number;
   error?: string;
+  note?: string; // live status, e.g. "限速中，20 秒後繼續"
+  pausedUntil?: number; // daily quota exhausted: resume after this time
   updatedAt: number;
+}
+
+/** Auto-highlight category per sentence (from the whole-paper guide pass). */
+export interface AutoHl {
+  paperId: string;
+  sid: string;
+  c: string;
+}
+
+export interface OnePager {
+  paperId: string;
+  md: string;
+  model?: string;
+  at: number;
+}
+
+// Writing studio
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  deleted?: boolean;
+}
+export interface WritingDoc {
+  id: string;
+  projectId: string;
+  title: string;
+  order: number;
+  content: unknown; // editor JSON
+  updatedAt: number;
+  createdAt: number;
+  deleted?: boolean;
 }
 
 export interface AppSettings {
@@ -180,6 +216,8 @@ export interface AppSettings {
   onlyWhitelist: boolean;
   modelTranslate: string;
   modelChat: string;
+  hoverStyle: "gray" | "green" | "amber";
+  autoOnepager: boolean;
   autoTranslate: boolean;
   theme: "system" | "light" | "dark";
   concurrency: number;
@@ -208,6 +246,10 @@ class PaperDB extends Dexie {
   saved!: Table<SavedRec, string>;
   settings!: Table<SettingRec, string>;
   jobs!: Table<JobRec, string>;
+  autohl!: Table<AutoHl, [string, string]>;
+  onepagers!: Table<OnePager, string>;
+  projects!: Table<Project, string>;
+  docs!: Table<WritingDoc, string>;
 
   constructor() {
     super("paper-sunshine");
@@ -229,6 +271,12 @@ class PaperDB extends Dexie {
       saved: "id, savedAt",
       settings: "key",
       jobs: "paperId",
+    });
+    this.version(2).stores({
+      autohl: "[paperId+sid], paperId",
+      onepagers: "paperId",
+      projects: "id, updatedAt",
+      docs: "id, projectId, updatedAt",
     });
   }
 }
@@ -259,16 +307,21 @@ export async function deletePaper(id: string) {
       await db.refs.delete(id);
       await db.quizzes.delete(id);
       await db.jobs.delete(id);
+      await db.autohl.where("paperId").equals(id).delete();
+      await db.onepagers.delete(id);
     },
   );
 }
 
 /** Clears machine-generated data so a paper can be re-translated. */
-export async function resetTranslations(id: string) {
-  await db.transaction("rw", [db.translations, db.pageStatus, db.overviews, db.jobs], async () => {
+export async function resetTranslations(id: string, opts: { model?: boolean } = {}) {
+  await db.transaction("rw", [db.translations, db.pageStatus, db.overviews, db.jobs, db.autohl, db.onepagers, db.models], async () => {
     await db.translations.where("paperId").equals(id).delete();
     await db.pageStatus.where("paperId").equals(id).delete();
     await db.overviews.delete(id);
     await db.jobs.delete(id);
+    await db.autohl.where("paperId").equals(id).delete();
+    await db.onepagers.delete(id);
+    if (opts.model) await db.models.delete(id);
   });
 }

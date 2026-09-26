@@ -111,6 +111,42 @@ export function renderPage(paperId: string, index: number, scale: number): Rende
   };
 }
 
+/**
+ * Shared render cache: in split view both panes need the same page bitmap, so
+ * the first pane to ask renders it and the second one reuses it. The bitmap
+ * is freed shortly after the last pane releases it (keeps iPad memory low).
+ */
+const shared = new Map<string, { handle: RenderHandle; refs: number; timer?: ReturnType<typeof setTimeout> }>();
+export function acquireRender(paperId: string, index: number, scale: number): { promise: Promise<HTMLCanvasElement | null>; release: () => void } {
+  const key = `${paperId}:${index}:${scale.toFixed(3)}`;
+  let e = shared.get(key);
+  if (!e) {
+    e = { handle: renderPage(paperId, index, scale), refs: 0 };
+    shared.set(key, e);
+  }
+  const entry = e;
+  entry.refs++;
+  clearTimeout(entry.timer);
+  let released = false;
+  return {
+    promise: entry.handle.promise,
+    release: () => {
+      if (released) return;
+      released = true;
+      entry.refs--;
+      if (entry.refs > 0) return;
+      entry.timer = setTimeout(() => {
+        if (entry.refs > 0) return;
+        shared.delete(key);
+        entry.handle.cancel();
+        void entry.handle.promise.then((c) => {
+          if (c) c.width = c.height = 0;
+        });
+      }, 1500);
+    },
+  };
+}
+
 /** Copies an offscreen render into a visible canvas. */
 export function blit(src: HTMLCanvasElement, dst: HTMLCanvasElement | null) {
   if (!dst) return;

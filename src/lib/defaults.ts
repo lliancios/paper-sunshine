@@ -30,6 +30,24 @@ export const COLOR_SCHEMES: { key: ColorScheme; label: string; hint: string }[] 
   { key: "stroke", label: "Point Stroke", hint: "底線" },
 ];
 
+/** "provider:model". Translation runs on Flash-Lite (about 500 free requests/day); chat on Flash (about 20/day, falls back to Flash-Lite). */
+export const DEFAULT_MODELS = { translate: "gemini:gemini-3.5-flash-lite", chat: "gemini:gemini-3.8-flash" };
+
+export interface ModelPreset {
+  key: string;
+  label: string;
+  hint: string;
+  translate: string;
+  chat: string;
+  needs: string; // env var the preset needs on the server
+}
+export const MODEL_PRESETS: ModelPreset[] = [
+  { key: "gemini-free", label: "Gemini 免費方案", hint: "翻譯用 Flash-Lite（每日約 500 次），解釋用 Flash（每日約 20 次，用完自動改用 Flash-Lite）", translate: "gemini:gemini-3.5-flash-lite", chat: "gemini:gemini-3.8-flash", needs: "GEMINI_API_KEY" },
+  { key: "gemini-paid", label: "Gemini 付費（品質最好）", hint: "Google 帳單啟用後，全部用 Flash；一篇論文約 0.02 到 0.1 美元", translate: "gemini:gemini-3.8-flash", chat: "gemini:gemini-3.8-flash", needs: "GEMINI_API_KEY" },
+  { key: "deepseek", label: "DeepSeek（最便宜）", hint: "deepseek-flash，一篇論文約 0.01 到 0.05 美元，支援圖片", translate: "deepseek:deepseek-flash", chat: "deepseek:deepseek-flash", needs: "DEEPSEEK_API_KEY" },
+  { key: "mixed", label: "DeepSeek 翻譯＋Gemini 解釋", hint: "大量翻譯交給 DeepSeek，解釋與圖表用 Gemini", translate: "deepseek:deepseek-flash", chat: "gemini:gemini-3.8-flash", needs: "DEEPSEEK_API_KEY + GEMINI_API_KEY" },
+];
+
 export const TARGET_LANGUAGES = ["繁體中文（台灣）", "简体中文", "English", "日本語", "한국어"];
 
 export const DEFAULT_ROLE_PROMPT = `你是一名專精於行銷管理、品牌管理、服務行銷、消費者行為、組織行為與 Social Identity Theory（社會認同理論）的學術翻譯專家。

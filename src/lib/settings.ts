@@ -1,7 +1,7 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
 import { type AppSettings, db } from "./db";
-import { DEFAULT_CATEGORIES, DEFAULT_JOURNALS, DEFAULT_RESEARCH_CONTEXT, DEFAULT_ROLE_PROMPT, TARGET_LANGUAGES } from "./defaults";
+import { DEFAULT_CATEGORIES, DEFAULT_JOURNALS, DEFAULT_MODELS, DEFAULT_RESEARCH_CONTEXT, DEFAULT_ROLE_PROMPT, TARGET_LANGUAGES } from "./defaults";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   targetLanguage: TARGET_LANGUAGES[0],
@@ -13,11 +13,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   colorScheme: "basic",
   journals: DEFAULT_JOURNALS,
   onlyWhitelist: true,
-  modelTranslate: "",
-  modelChat: "",
+  modelTranslate: DEFAULT_MODELS.translate,
+  modelChat: DEFAULT_MODELS.chat,
+  hoverStyle: "gray",
+  autoOnepager: true,
   autoTranslate: true,
   theme: "system",
-  concurrency: 3,
+  concurrency: 2,
 };
 
 export async function getSettings(): Promise<AppSettings> {
@@ -33,4 +35,9 @@ export async function saveSettings(patch: Partial<AppSettings>) {
 export function useSettings(): AppSettings {
   const rec = useLiveQuery(() => db.settings.get("app"), []);
   return { ...DEFAULT_SETTINGS, ...(rec?.value ?? {}) };
+}
+
+/** Model specs actually used; empty values from older settings mean "app default". */
+export function models(s: AppSettings) {
+  return { translate: s.modelTranslate || DEFAULT_MODELS.translate, chat: s.modelChat || DEFAULT_MODELS.chat };
 }

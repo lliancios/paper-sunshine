@@ -104,7 +104,7 @@ function TBlock({ block, scale, bg }: { block: Block; scale: number; bg: string 
 }
 
 function TSentence({ sid }: { sid: string }) {
-  const { model, trans, hlBySid, exBySid, settings, catColor } = useReaderData();
+  const { model, trans, cats, hlBySid, exBySid, settings, catColor } = useReaderData();
   const hover = useReader((s) => s.hoverSid === sid);
   const flashAt = useReader((s) => (s.flash?.sid === sid ? s.flash.at : 0));
   const showAuto = useReader((s) => s.showAuto);
@@ -127,8 +127,8 @@ function TSentence({ sid }: { sid: string }) {
       st.textDecorationColor = rgba(c, 0.95);
       st.textDecorationThickness = "1.5px";
       st.textUnderlineOffset = "3px";
-    } else if (showAuto && settings.autoHighlight && tr?.c) {
-      const c = catColor(tr.c);
+    } else if (showAuto && settings.autoHighlight && cats.get(sid)) {
+      const c = catColor(cats.get(sid)!);
       if (settings.colorScheme === "stroke") {
         st.textDecorationLine = "underline";
         st.textDecorationColor = rgba(c, 0.85);
@@ -146,7 +146,7 @@ function TSentence({ sid }: { sid: string }) {
     st.boxDecorationBreak = "clone";
     st.WebkitBoxDecorationBreak = "clone";
     return st;
-  }, [fallback, hlBySid, exBySid, sid, showAuto, settings, tr, catColor]);
+  }, [fallback, hlBySid, exBySid, sid, showAuto, settings, cats, catColor]);
 
   // Split the sentence at the boundaries of highlights drawn on this side.
   const segments = useMemo(() => {

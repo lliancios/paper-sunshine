@@ -1,7 +1,7 @@
 "use client";
 import { Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getPasscode, setPasscode } from "@/lib/api";
+import { friendlyError, getPasscode, postJson, setPasscode } from "@/lib/api";
 import { download } from "@/lib/citation";
 import { type AppSettings, db } from "@/lib/db";
 import {
@@ -10,19 +10,22 @@ import {
   DEFAULT_JOURNALS,
   DEFAULT_RESEARCH_CONTEXT,
   DEFAULT_ROLE_PROMPT,
+  MODEL_PRESETS,
   TARGET_LANGUAGES,
   TIER_LABEL,
   type Journal,
 } from "@/lib/defaults";
-import { DEFAULT_SETTINGS, saveSettings, useSettings } from "@/lib/settings";
+import { unpause } from "@/lib/pipeline";
+import { DEFAULT_SETTINGS, models, saveSettings, useSettings } from "@/lib/settings";
 import { APP_VERSION } from "@/lib/version";
 import { useApp } from "./AppFrame";
 import { Badge, Button, Modal, Segmented, cx, toast } from "./ui";
 
-type Tab = "general" | "prompt" | "research" | "categories" | "journals" | "data";
+type Tab = "general" | "models" | "prompt" | "research" | "categories" | "journals" | "data";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "general", label: "一般" },
+  { key: "models", label: "模型與連線" },
   { key: "prompt", label: "翻譯角色提示詞" },
   { key: "research", label: "研究脈絡" },
   { key: "categories", label: "自動高亮分類" },
@@ -51,9 +54,16 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
 
   const save = async () => {
+    const before = models(saved);
     await saveSettings(draft);
     if (pass !== getPasscode()) setPasscode(pass);
-    toast("設定已儲存");
+    const after = models(draft);
+    if (before.translate !== after.translate || before.chat !== after.chat) {
+      // A new model has its own quota: resume papers paused by the old one.
+      const paused = await db.jobs.filter((j) => j.stage === "paused").toArray();
+      for (const j of paused) await unpause(j.paperId);
+      toast(paused.length ? `設定已儲存，${paused.length} 篇暫停的論文已用新模型繼續` : "設定已儲存");
+    } else toast("設定已儲存");
   };
 
   return (
@@ -77,14 +87,6 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         <div className="min-w-0 flex-1 space-y-5">
           {tab === "general" && (
             <>
-              <Field label="連線狀態">
-                <div className="flex flex-wrap gap-2 text-sm">
-                  <Badge tone={health?.gemini ? "green" : "red"}>Gemini {health?.gemini ? "已設定" : "未設定（示範模式）"}</Badge>
-                  <Badge tone={health?.openalex ? "green" : "red"}>OpenAlex {health?.openalex ? "已設定" : "未設定"}</Badge>
-                  <Badge tone="gray">伺服器預設模型：{health?.models.translate ?? "?"}</Badge>
-                  <Badge tone="gray">v{APP_VERSION}</Badge>
-                </div>
-              </Field>
               <Field label="網站密碼（APP_PASSCODE）" hint="只存在這台裝置。">
                 <input className={input} type="password" value={pass} onChange={(e) => setPass(e.target.value)} />
               </Field>
@@ -95,18 +97,19 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                   ))}
                 </select>
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="翻譯與高亮模型" hint="留空使用伺服器預設">
-                  <input className={input} placeholder={health?.models.translate} value={draft.modelTranslate} onChange={(e) => up({ modelTranslate: e.target.value.trim() })} />
-                </Field>
-                <Field label="解釋與討論模型" hint="留空使用伺服器預設">
-                  <input className={input} placeholder={health?.models.chat} value={draft.modelChat} onChange={(e) => up({ modelChat: e.target.value.trim() })} />
-                </Field>
-              </div>
               <Toggle label="上傳後自動翻譯整篇並產生自動高亮" value={draft.autoTranslate} onChange={(v) => up({ autoTranslate: v })} />
-              <Toggle label="自動高亮（與翻譯同一次呼叫，不額外花費）" value={draft.autoHighlight} onChange={(v) => up({ autoHighlight: v })} />
-              <Field label="同時翻譯頁數" hint="遇到 429 過多請求時調低">
-                <input className={input} type="number" min={1} max={6} value={draft.concurrency} onChange={(e) => up({ concurrency: Number(e.target.value) || 1 })} />
+              <Toggle label="自動高亮（全文一次標完，只花 1 次請求）" value={draft.autoHighlight} onChange={(v) => up({ autoHighlight: v })} />
+              <Toggle label="翻譯完成後自動產生一頁速覽" value={draft.autoOnepager} onChange={(v) => up({ autoOnepager: v })} />
+              <Field label="句子對照框顏色" hint="滑鼠停在句子上時，兩側同一句的底色">
+                <Segmented
+                  value={draft.hoverStyle}
+                  onChange={(v) => up({ hoverStyle: v })}
+                  options={[
+                    { value: "gray", label: "灰色反光" },
+                    { value: "green", label: "綠色" },
+                    { value: "amber", label: "琥珀" },
+                  ]}
+                />
               </Field>
               <Field label="自動高亮配色">
                 <Segmented value={draft.colorScheme} onChange={(v) => up({ colorScheme: v })} options={COLOR_SCHEMES.map((c) => ({ value: c.key, label: c.label }))} />
@@ -124,6 +127,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               </Field>
             </>
           )}
+
+          {tab === "models" && <ModelsTab draft={draft} up={up} />}
 
           {tab === "prompt" && (
             <Field
@@ -193,6 +198,88 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         </div>
       </div>
     </Modal>
+  );
+}
+
+function ModelsTab({ draft, up }: { draft: AppSettings; up: (p: Partial<AppSettings>) => void }) {
+  const health = useApp((s) => s.health);
+  const [checks, setChecks] = useState<{ name: string; ok: boolean; ms: number; detail: string }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const cur = models(draft);
+  const preset = MODEL_PRESETS.find((p) => p.translate === cur.translate && p.chat === cur.chat)?.key ?? "custom";
+  const run = async () => {
+    setBusy(true);
+    setChecks(null);
+    try {
+      const r = await postJson<{ checks: { name: string; ok: boolean; ms: number; detail: string }[] }>("/api/diagnose", cur);
+      setChecks(r.checks);
+    } catch (e) {
+      setChecks([{ name: "診斷", ok: false, ms: 0, detail: friendlyError(e) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const providers = health?.providers ?? {};
+  return (
+    <>
+      <Field label="伺服器上已設定的金鑰" hint="金鑰只放在 Vercel 的環境變數，不會送到瀏覽器。">
+        <div className="flex flex-wrap gap-1.5 text-sm">
+          {Object.entries({ gemini: "Gemini", deepseek: "DeepSeek", openrouter: "OpenRouter", siliconflow: "SiliconFlow", groq: "Groq", custom: "自訂" }).map(([k, label]) => (
+            <Badge key={k} tone={providers[k] ? "green" : "gray"}>
+              {label} {providers[k] ? "✓" : "未設定"}
+            </Badge>
+          ))}
+          <Badge tone={health?.openalex ? "green" : "red"}>OpenAlex {health?.openalex ? "✓" : "未設定"}</Badge>
+          <Badge tone="gray">v{APP_VERSION}</Badge>
+        </div>
+      </Field>
+      <Field label="模型方案">
+        <div className="space-y-2">
+          {MODEL_PRESETS.map((p) => (
+            <label key={p.key} className={cx("flex cursor-pointer gap-3 rounded-xl border p-3", preset === p.key ? "border-accent bg-accent-soft" : "border-line hover:bg-muted")}>
+              <input type="radio" checked={preset === p.key} onChange={() => up({ modelTranslate: p.translate, modelChat: p.chat })} className="mt-1" />
+              <div className="min-w-0 text-sm">
+                <div className="font-medium">
+                  {p.label} <span className="text-xs font-normal text-ink-faint">需要 {p.needs}</span>
+                </div>
+                <div className="text-xs text-ink-soft">{p.hint}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="翻譯、高亮、相關論文" hint="格式：提供者:模型，例如 gemini:gemini-3.5-flash-lite">
+          <input className={input} value={draft.modelTranslate} onChange={(e) => up({ modelTranslate: e.target.value.trim() })} />
+        </Field>
+        <Field label="解釋、討論、速覽、圖表" hint="圖表解讀需支援圖片的模型">
+          <input className={input} value={draft.modelChat} onChange={(e) => up({ modelChat: e.target.value.trim() })} />
+        </Field>
+      </div>
+      <Field label="同時翻譯批次數" hint="每批約 3 到 4 頁。遇到「請求太頻繁」時調成 1。">
+        <input className={input} type="number" min={1} max={4} value={draft.concurrency} onChange={(e) => up({ concurrency: Number(e.target.value) || 1 })} />
+      </Field>
+      <Field label="連線診斷" hint="用目前填的模型實際呼叫一次，確認金鑰、模型名稱與額度。記得先儲存設定。">
+        <Button onClick={run} disabled={busy}>
+          {busy ? "測試中…" : "執行診斷"}
+        </Button>
+        {checks && (
+          <div className="mt-3 divide-y divide-line rounded-xl border border-line text-sm">
+            {checks.map((c) => (
+              <div key={c.name} className="flex items-start gap-2 px-3 py-2">
+                <span className={c.ok ? "text-emerald-600" : "text-red-600"}>{c.ok ? "✓" : "✗"}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">
+                    {c.name} <span className="text-xs font-normal text-ink-faint">{c.ms} ms</span>
+                  </div>
+                  <div className="break-words text-xs text-ink-soft">{c.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Field>
+    </>
   );
 }
 

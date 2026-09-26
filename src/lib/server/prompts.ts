@@ -1,4 +1,4 @@
-import type { OverviewRequest, QuizRequest, RerankRequest, StreamRequest, TranslateRequest } from "../apiTypes";
+import type { GuideRequest, OverviewRequest, QuizRequest, RerankRequest, StreamRequest, TranslateLinesRequest, TranslateRequest } from "../apiTypes";
 import { S } from "./gemini";
 
 // House style for everything the app writes in Chinese.
@@ -31,6 +31,57 @@ export function translatePrompt(r: TranslateRequest) {
     items: S.arr(S.obj({ id: S.str(), t: S.str(), c: S.enumOf(catKeys) })),
   });
   return { system, user, schema };
+}
+
+// ---------------------------------------------------------------- guide ----
+
+/** Whole-paper pass: reading guide, glossary and all auto highlights in one request. */
+export function guidePrompt(r: GuideRequest) {
+  const cats = r.categories.map((c) => `${c.key}＝${c.label}（${c.description}）`).join("；");
+  const system = [
+    "你是學術研究助理。在翻譯整篇論文之前，一次完成導讀、術語表與關鍵句標記。",
+    `以下是使用者的翻譯規範，術語的${r.targetLanguage}譯法必須遵守它：`,
+    "-----",
+    fillLang(r.rolePrompt, r.targetLanguage),
+    "-----",
+    "輸入是整篇論文，每行是「句子ID<Tab>句子」，標題行以 ## 開頭。輸出 JSON：",
+    "titleZh：論文標題譯名。",
+    "summary3：三句話摘要（研究問題、方法、主要發現），每句不超過 60 字。",
+    `keywords：8 到 15 個最核心的構念、理論或方法詞：en、${r.targetLanguage}譯名 zh、在本文脈絡中的定義 def（不超過 60 字）。`,
+    "glossary：15 到 60 個反覆出現的專有名詞、構念、變數與方法詞（含 keywords）的統一譯名。en 使用原文最常見寫法（保留大小寫與縮寫）。",
+    r.autoHighlight
+      ? `highlights：從全文挑出讀者最該劃線的關鍵句，分類為 ${cats}。平均每頁 2 到 6 句，全篇通常 20 到 60 句；只能使用輸入中出現過的句子ID，不要挑標題、參考文獻、作者簡介或致謝。`
+      : "highlights：空陣列。",
+    STYLE,
+  ].join("\n");
+  const user = `論文標題：${r.title ?? "（未知）"}\n\n${r.lines}`;
+  const catKeys = r.categories.map((c) => c.key);
+  const schema = S.obj({
+    titleZh: S.str(),
+    summary3: S.arr(S.str()),
+    keywords: S.arr(S.obj({ en: S.str(), zh: S.str(), def: S.str() })),
+    glossary: S.arr(S.obj({ en: S.str(), zh: S.str() })),
+    highlights: S.arr(S.obj({ id: S.str(), c: catKeys.length ? S.enumOf(catKeys) : S.str() })),
+  });
+  return { system, user, schema };
+}
+
+// ------------------------------------------------------ translate (lines) ----
+
+/** Streamed multi-page translation; one "<id>\t<translation>" line per sentence. */
+export function translateLinesPrompt(r: TranslateLinesRequest) {
+  const rules = [
+    "【系統輸出規則（優先於以上所有規則，確保雙語高亮能逐句對齊）】",
+    '1. 輸入是 JSON：{"paper_title","glossary":[{"en","zh"}],"blocks":[{"kind","sentences":[{"id","text","first_terms"?}]}]}。',
+    "2. 逐句翻譯，每一句輸出一行：句子ID、一個 Tab、譯文。依輸入順序，不可遺漏、合併或拆分句子；同一句之內可依中文語序重組。",
+    "3. 譯文本身不得換行；不得輸出任何其他文字、標題、Markdown、程式碼區塊或說明。",
+    `4. 譯文使用${r.targetLanguage}。術語一律依 glossary；只有帶 first_terms 的句子，對應術語使用「English（中文）」格式，其他句子只用中文術語（縮寫如 PPS、H1 可保留）。`,
+    "5. kind=heading 或 label 的譯文要簡短；kind=caption 保留 Figure/Table 編號。",
+    "6. 句子來自 PDF 抽取，可能有斷字、多餘空白或上下標殘留，請依語意翻譯。",
+  ].join("\n");
+  const system = `${fillLang(r.rolePrompt, r.targetLanguage)}\n\n${rules}`;
+  const user = JSON.stringify({ paper_title: r.paperTitle ?? "", glossary: r.glossary, blocks: r.blocks });
+  return { system, user };
 }
 
 // ------------------------------------------------------------- overview ----
@@ -140,6 +191,30 @@ export function streamPrompt(r: StreamRequest): { system: string; user: string }
         ]
           .filter(Boolean)
           .join("\n"),
+      };
+    case "onepager":
+      return {
+        system: [base, research].filter(Boolean).join("\n\n"),
+        user: [
+          paper,
+          "論文全文（每行「句子ID<Tab>句子」，標題行以 ## 開頭）：",
+          r.paperText ?? "",
+          "請做「一頁速覽」，讓讀者在精讀前 3 分鐘掌握全文。規則：",
+          "· 每個事實性陳述後面用 [[句子ID]] 標出依據（例如 [[3.12]]），只能用輸入中出現的ID；論文沒寫的就寫「論文未說明」，不可推測。",
+          "· 使用以下 Markdown 段落標題，順序固定，整體精簡：",
+          "## 一句話結論",
+          "## 論文身分證（表格：類型｜研究情境｜分析層次｜樣本與資料｜方法）",
+          "## 研究問題與缺口",
+          "## 理論與核心構念（表格：構念（英文／中文）｜角色（自變數、依變數、中介、調節、控制、概念）｜本文定義）",
+          "## 研究設計",
+          "## 主要發現（逐條，註明支持或不支持）",
+          "## 貢獻（理論／實務）",
+          "## 限制與未來研究",
+          "## 五 C 快速評估（Category、Context、Correctness、Contributions、Clarity 各一句）",
+          "## 與我的研究的關聯（沒有明確關聯就寫「無明確關聯」）",
+          "## 值得引用的三句（引用英文原句，後附 [[句子ID]]）",
+          "## 精讀路線（第二遍該讀哪些段落、可略讀哪些，附 [[句子ID]]）",
+        ].join("\n"),
       };
     case "summary":
       return {

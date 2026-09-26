@@ -11,16 +11,18 @@ import {
   PanelRight,
   Send,
   Sparkles,
+  Telescope,
   Trash2,
   WandSparkles,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { aiJson, aiStream, postJson } from "@/lib/api";
+import { aiJson, aiStream, friendlyError, postJson } from "@/lib/api";
 import type { QuizQuestion, WorkMeta } from "@/lib/apiTypes";
 import { printedPage, quoteWithCitation } from "@/lib/citation";
 import { type Highlight, db, uid } from "@/lib/db";
 import { HIGHLIGHT_COLORS } from "@/lib/defaults";
+import { models } from "@/lib/settings";
 import { type RightTab, useReader } from "@/store/reader";
 import { WorkCard } from "../WorkPanels";
 import { Badge, Button, IconButton, Markdown, Segmented, copyText, cx, relTime, toast } from "../ui";
@@ -63,6 +65,14 @@ export function RightRail() {
           )}
         </button>
       ))}
+      <button
+        type="button"
+        title="相關論文"
+        onClick={() => set({ relatedOpen: !useReader.getState().relatedOpen, savedOpen: false })}
+        className="relative flex h-10 w-10 items-center justify-center rounded-xl text-ink-soft hover:bg-muted hover:text-ink"
+      >
+        <Telescope size={19} />
+      </button>
       <div className="mt-auto">
         <IconButton title={bottom ? "將側邊欄移到右側" : "將側邊欄移到底部"} onClick={() => set({ sidebarBottom: !bottom })}>
           {bottom ? <PanelRight size={18} /> : <PanelBottom size={18} />}
@@ -147,13 +157,13 @@ function SummaryView() {
           paperText: fullText(data.model, 120000),
           overview: overviewText(o),
           researchContext: data.settings.researchContext,
-          model: data.settings.modelChat || undefined,
+          model: models(data.settings).chat,
         },
         setDetail,
       );
       if (rec) await db.overviews.put({ ...rec, detail: full });
     } catch (e) {
-      toast(`摘要失敗：${e instanceof Error ? e.message : e}`, "error");
+      toast(`摘要失敗：${friendlyError(e)}`, "error");
     } finally {
       setBusy(false);
     }
@@ -242,14 +252,14 @@ function ChatView() {
           overview: overviewText(data.overview),
           researchContext: data.settings.researchContext,
           messages: history,
-          model: data.settings.modelChat || undefined,
+          model: models(data.settings).chat,
         },
         setStreaming,
       );
       const t = Date.now();
       await db.chats.put({ id: uid(), paperId: data.paperId, role: "model", text: full, createdAt: t, updatedAt: t });
     } catch (e) {
-      toast(`討論失敗：${e instanceof Error ? e.message : e}`, "error");
+      toast(`討論失敗：${friendlyError(e)}`, "error");
     } finally {
       setStreaming(null);
     }
@@ -325,11 +335,11 @@ function QuizPanel() {
         title: data.paper.title,
         text: fullText(data.model, 60000),
         targetLanguage: data.settings.targetLanguage,
-        model: data.settings.modelChat || undefined,
+        model: models(data.settings).chat,
       });
       await db.quizzes.put({ paperId: data.paperId, questions: r.questions, answers: r.questions.map(() => null), at: Date.now() });
     } catch (e) {
-      toast(`出題失敗：${e instanceof Error ? e.message : e}`, "error");
+      toast(`出題失敗：${friendlyError(e)}`, "error");
     } finally {
       setBusy(false);
     }
@@ -561,7 +571,7 @@ function CitationsPanel() {
       });
       await db.refs.put({ paperId: data.paperId, references: r.references, citedBy: r.citedBy, at: Date.now(), note: r.note ?? r.error });
     } catch (e) {
-      toast(`載入失敗：${e instanceof Error ? e.message : e}`, "error");
+      toast(`載入失敗：${friendlyError(e)}`, "error");
     } finally {
       setBusy(false);
     }

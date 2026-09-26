@@ -1,6 +1,12 @@
 "use client";
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { blit, renderPage, samplePaperColors } from "@/lib/pdf";
+// Split view: the original and the translation live in two independent
+// scroll panes. Both panes lay pages out with identical geometry, so keeping
+// them aligned is just copying scrollTop/scrollLeft from the pane you are
+// touching to the other one. Zoom in and the right pane still shows the same
+// corner of the same page as the left pane.
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Side } from "@/engine/types";
+import { acquireRender, blit, samplePaperColors } from "@/lib/pdf";
 import { setFocus } from "@/lib/pipeline";
 import { useReader } from "@/store/reader";
 import { cx } from "../ui";
@@ -8,17 +14,22 @@ import { useReaderData } from "./ReaderData";
 import { SourceLayer } from "./SourceLayer";
 import { TranslatedLayer } from "./TranslatedLayer";
 
+const PANE_PAD = 20;
+
 export function PagesViewport() {
   const { model, paperId } = useReaderData();
   const viewMode = useReader((s) => s.viewMode);
   const zoom = useReader((s) => s.zoom);
   const regionMode = useReader((s) => s.regionMode);
   const set = useReader((s) => s.set);
-  const ref = useRef<HTMLDivElement>(null);
+  const outer = useRef<HTMLDivElement>(null);
+  const panes = useRef<(HTMLDivElement | null)[]>([]);
+  const leader = useRef(0);
   const [width, setWidth] = useState(0);
+  const sides: Side[] = viewMode === "both" ? ["src", "tgt"] : [viewMode];
 
   useEffect(() => {
-    const el = ref.current;
+    const el = outer.current;
     if (!el) return;
     const ro = new ResizeObserver(() => setWidth(el.clientWidth));
     ro.observe(el);
@@ -27,28 +38,42 @@ export function PagesViewport() {
   }, []);
 
   const maxW = Math.max(...model.pages.map((p) => p.w));
-  const n = viewMode === "both" ? 2 : 1;
-  const fit = width ? Math.max(0.3, (width - 40 - 16 * (n - 1)) / (n * maxW)) : 1;
+  const paneW = width / sides.length;
+  const fit = width ? Math.max(0.3, (paneW - 2 * PANE_PAD - 10) / maxW) : 1;
   const scale = zoom === "fit" ? fit : zoom;
 
   // Keep the reading position when the scale changes.
   const prevScale = useRef(scale);
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = panes.current[leader.current] ?? panes.current[0];
     if (el && prevScale.current !== scale) {
-      const ratio = el.scrollTop / Math.max(1, el.scrollHeight);
+      const ry = el.scrollTop / Math.max(1, el.scrollHeight);
+      const rx = el.scrollLeft / Math.max(1, el.scrollWidth);
       requestAnimationFrame(() => {
-        el.scrollTop = ratio * el.scrollHeight;
+        el.scrollTop = ry * el.scrollHeight;
+        el.scrollLeft = rx * el.scrollWidth;
       });
     }
     prevScale.current = scale;
     set({ scale });
   }, [scale, set]);
 
-  // Current page tracking.
+  // Mirror scroll from the pane being touched to the others.
+  const onScroll = useCallback((i: number) => {
+    if (i !== leader.current) return;
+    const src = panes.current[i];
+    if (!src) return;
+    panes.current.forEach((p, j) => {
+      if (!p || j === i) return;
+      if (p.scrollTop !== src.scrollTop) p.scrollTop = src.scrollTop;
+      if (p.scrollLeft !== src.scrollLeft) p.scrollLeft = src.scrollLeft;
+    });
+  }, []);
+
+  // Current page tracking on the first pane.
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    const root = panes.current[0];
+    if (!root) return;
     const ratios = new Map<number, number>();
     const io = new IntersectionObserver(
       (entries) => {
@@ -61,19 +86,21 @@ export function PagesViewport() {
           setFocus(paperId, best);
         }
       },
-      { root: el, threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] },
+      { root, threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] },
     );
-    el.querySelectorAll("[data-row]").forEach((r) => io.observe(r));
+    root.querySelectorAll("[data-row]").forEach((r) => io.observe(r));
     return () => io.disconnect();
-  }, [paperId, set, model.pages.length]);
+  }, [paperId, set, model.pages.length, viewMode]);
 
   // Scroll API used by panels, outline, search and highlights.
   useEffect(() => {
     set({
       scrollToPage: (page: number, y?: number) => {
-        const el = ref.current;
+        const i = panes.current[leader.current] ? leader.current : 0;
+        const el = panes.current[i];
         const row = el?.querySelector<HTMLElement>(`[data-row="${page}"]`);
         if (!el || !row) return;
+        leader.current = i;
         const s = useReader.getState().scale;
         const top = row.offsetTop + (y !== undefined ? y * s - el.clientHeight * 0.3 : -12);
         el.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
@@ -84,81 +111,91 @@ export function PagesViewport() {
 
   // Ctrl/⌘ + wheel zoom on desktop.
   useEffect(() => {
-    const el = ref.current;
+    const el = outer.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const s = useReader.getState().scale;
-      const next = Math.min(4, Math.max(0.3, s * (e.deltaY < 0 ? 1.08 : 1 / 1.08)));
-      set({ zoom: Math.round(next * 100) / 100 });
+      set({ zoom: Math.round(Math.min(4, Math.max(0.3, s * (e.deltaY < 0 ? 1.08 : 1 / 1.08))) * 100) / 100 });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [set]);
 
   return (
-    <div ref={ref} className={cx("scroll-thin relative h-full overflow-auto bg-reader", regionMode && "ps-region-mode")} data-reader-root>
-      <div className="flex flex-col items-center gap-4 px-5 py-5" style={{ minWidth: "fit-content" }}>
-        {model.pages.map((p) => (
-          <PageRow key={p.i} index={p.i} scale={scale} viewMode={viewMode} />
-        ))}
-      </div>
+    <div ref={outer} className={cx("flex h-full bg-reader", regionMode && "ps-region-mode")} data-reader-root>
+      {sides.map((side, i) => (
+        <div
+          key={side}
+          ref={(el) => {
+            panes.current[i] = el;
+          }}
+          onScroll={() => onScroll(i)}
+          onPointerEnter={() => (leader.current = i)}
+          onPointerDown={() => (leader.current = i)}
+          onTouchStart={() => (leader.current = i)}
+          onWheel={() => (leader.current = i)}
+          className={cx("scroll-thin relative h-full min-w-0 flex-1 overflow-auto", i > 0 && "border-l border-line")}
+          style={{ overscrollBehavior: "contain" }}
+        >
+          <div className="flex flex-col items-center gap-4" style={{ padding: PANE_PAD, minWidth: "fit-content" }}>
+            {model.pages.map((p) => (
+              <PageBox key={p.i} index={p.i} scale={scale} side={side} />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-const PageRow = memo(function PageRow({ index, scale, viewMode }: { index: number; scale: number; viewMode: "both" | "src" | "tgt" }) {
+const PageBox = memo(function PageBox({ index, scale, side }: { index: number; scale: number; side: Side }) {
   const { model, paperId } = useReaderData();
   const page = model.pages[index];
   const w = Math.round(page.w * scale);
   const h = Math.round(page.h * scale);
-  const rowRef = useRef<HTMLDivElement>(null);
-  const srcRef = useRef<HTMLCanvasElement>(null);
-  const tgtRef = useRef<HTMLCanvasElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [near, setNear] = useState(false);
   const [colors, setColors] = useState<Map<string, string>>(() => new Map());
 
   useEffect(() => {
-    const el = rowRef.current;
+    const el = boxRef.current;
     if (!el) return;
-    const root = el.closest("[data-reader-root]");
-    const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { root, rootMargin: "900px 0px" });
+    const root = el.closest<HTMLElement>(".overflow-auto");
+    const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { root, rootMargin: "900px 400px" });
     io.observe(el);
     return () => io.disconnect();
   }, []);
 
   useEffect(() => {
+    const c = canvasRef.current;
     if (!near) {
-      for (const c of [srcRef.current, tgtRef.current]) if (c) c.width = c.height = 0; // free memory (iPad)
+      if (c) c.width = c.height = 0; // free memory (iPad)
       return;
     }
-    const handle = renderPage(paperId, index, scale);
-    void handle.promise.then((off) => {
-      if (!off) return;
-      blit(off, srcRef.current);
-      blit(off, tgtRef.current);
-      const blocks = page.blocks.filter((b) => b.kind !== "skip").map((b) => ({ id: b.id, r: b.r }));
-      setColors(samplePaperColors(off, blocks, off.width / page.w));
-      off.width = off.height = 0;
+    const r = acquireRender(paperId, index, scale);
+    let alive = true;
+    void r.promise.then((off) => {
+      if (!off || !alive) return r.release();
+      blit(off, canvasRef.current);
+      if (side === "tgt") {
+        const blocks = page.blocks.filter((b) => b.kind !== "skip").map((b) => ({ id: b.id, r: b.r }));
+        setColors(samplePaperColors(off, blocks, off.width / page.w));
+      }
+      r.release();
     });
-    return () => handle.cancel();
-  }, [near, scale, viewMode, paperId, index, page]);
+    return () => {
+      alive = false;
+      r.release();
+    };
+  }, [near, scale, paperId, index, page, side]);
 
   return (
-    <div ref={rowRef} data-row={index} className="flex shrink-0 gap-4" style={{ height: h }}>
-      {viewMode !== "tgt" && (
-        <div className="relative shrink-0 bg-white shadow-sm ring-1 ring-black/5" style={{ width: w, height: h }}>
-          <canvas ref={srcRef} className="absolute inset-0" style={{ width: w, height: h }} />
-          {near && <SourceLayer index={index} scale={scale} />}
-        </div>
-      )}
-      {viewMode !== "src" && (
-        <div className="relative shrink-0 bg-white shadow-sm ring-1 ring-black/5" style={{ width: w, height: h }}>
-          <canvas ref={tgtRef} className="absolute inset-0" style={{ width: w, height: h }} />
-          {near && <TranslatedLayer index={index} scale={scale} colors={colors} />}
-        </div>
-      )}
+    <div ref={boxRef} data-row={index} className="relative shrink-0 bg-white shadow-sm ring-1 ring-black/5" style={{ width: w, height: h }}>
+      <canvas ref={canvasRef} className="absolute inset-0" style={{ width: w, height: h }} />
+      {near && (side === "src" ? <SourceLayer index={index} scale={scale} /> : <TranslatedLayer index={index} scale={scale} colors={colors} />)}
     </div>
   );
 });

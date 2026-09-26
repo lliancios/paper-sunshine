@@ -1,7 +1,8 @@
 import type { RelatedItem, RerankItem, WorkMeta } from "@/lib/apiTypes";
 import { type Journal, matchJournal } from "@/lib/defaults";
 import { requireAuth } from "@/lib/server/auth";
-import { generate, hasGemini, modelFor, parseJson } from "@/lib/server/gemini";
+import { parseJson } from "@/lib/server/gemini";
+import { DEFAULT_TRANSLATE_MODEL, canServe, llmGenerate } from "@/lib/server/llm";
 import { type OAWork, getWork, getWorksByIds, hasOpenAlex, issnFilter, listWorks, shortId, toMeta } from "@/lib/server/openalex";
 import { rerankPrompt } from "@/lib/server/prompts";
 
@@ -19,6 +20,7 @@ interface Body {
   journals: Journal[];
   onlyWhitelist: boolean;
   exclude: string[]; // DOIs already in the library
+  model?: string;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -111,7 +113,7 @@ export async function POST(req: Request) {
     const maxPre = Math.max(1, ...pool.map((p) => p.score));
     for (const p of pool) p.score = Math.round((p.score / maxPre) * 80);
 
-    if (hasGemini() && pool.length) {
+    if (canServe(b.model, DEFAULT_TRANSLATE_MODEL) && pool.length) {
       try {
         const { system, user, schema } = rerankPrompt({
           task: "rerank",
@@ -119,7 +121,7 @@ export async function POST(req: Request) {
           researchContext: b.researchContext,
           candidates: pool.map((p) => ({ id: p.openalexId ?? "", title: p.title, abstract: p.abstract?.slice(0, 350), venue: p.journal, year: p.year })),
         });
-        const { text } = await generate({ model: modelFor("translate"), system, contents: [{ role: "user", parts: [{ text: user }] }], schema, json: true, thinking: "low" });
+        const { text } = await llmGenerate({ model: b.model, defaultModel: DEFAULT_TRANSLATE_MODEL, fallback: DEFAULT_TRANSLATE_MODEL, system, contents: [{ role: "user", parts: [{ text: user }] }], schema, json: true, thinking: "low" });
         const ranked = parseJson<{ items?: RerankItem[] }>(text).items ?? [];
         const byId = new Map(ranked.map((r) => [r.id, r]));
         for (const p of pool) {

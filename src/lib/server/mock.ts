@@ -1,6 +1,6 @@
 // Demo responses used when GEMINI_API_KEY is not configured, so the whole app
 // (sync highlights, overlays, panels) can be tried before adding a key.
-import type { Overview, QuizQuestion, TranslateRequest, TranslateResponse } from "../apiTypes";
+import type { Guide, GuideRequest, Overview, QuizQuestion, TranslateLinesRequest, TranslateRequest, TranslateResponse } from "../apiTypes";
 
 export function mockTranslate(r: TranslateRequest): TranslateResponse {
   const items = [];
@@ -63,4 +63,29 @@ function fakeZh(en: string): string {
   let out = "";
   for (let i = 0; out.length < n; i++) out += FILL[(en.length + i) % FILL.length];
   return `${out}。`;
+}
+
+export function mockGuide(r: GuideRequest): Guide {
+  const ids = r.lines
+    .split("\n")
+    .map((l) => l.split("\t")[0])
+    .filter((x) => /^\d+\.\d+$/.test(x));
+  const highlights = r.autoHighlight
+    ? ids.filter((_, i) => i % 9 === 3).map((id, i) => ({ id, c: r.categories[i % Math.max(1, r.categories.length)]?.key ?? "novelty" }))
+    : [];
+  return { ...mockOverview(r.title), highlights };
+}
+
+export function mockLines(r: TranslateLinesRequest): ReadableStream<Uint8Array> {
+  const enc = new TextEncoder();
+  const lines = r.blocks.flatMap((b) => b.sentences.map((s) => `${s.id}\t${process.env.MOCK_STYLE === "zh" ? fakeZh(s.text) : `〔示範譯文〕${s.text}`}\n`));
+  let i = 0;
+  return new ReadableStream({
+    async pull(c) {
+      if (i >= lines.length) return c.close();
+      await new Promise((res) => setTimeout(res, 15));
+      c.enqueue(enc.encode(lines.slice(i, i + 3).join("")));
+      i += 3;
+    },
+  });
 }

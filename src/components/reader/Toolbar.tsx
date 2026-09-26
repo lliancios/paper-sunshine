@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   ScanSearch,
+  ScrollText,
   Search,
   Settings,
 } from "lucide-react";
@@ -18,7 +19,8 @@ import { useMemo, useState } from "react";
 import { apaReference, download, inText, printedPage, safeFileName, toMarkdown, toRis } from "@/lib/citation";
 import { db, resetTranslations } from "@/lib/db";
 import { COLOR_SCHEMES } from "@/lib/defaults";
-import { enqueue } from "@/lib/pipeline";
+import { enqueue, lookupMeta, refreshRelated, unpause } from "@/lib/pipeline";
+import { ENGINE_VERSION } from "@/engine/layout";
 import { saveSettings } from "@/lib/settings";
 import { useReader } from "@/store/reader";
 import { useApp } from "../AppFrame";
@@ -48,7 +50,7 @@ export function Toolbar() {
     r.set({ outlineOpen: false, infoOpen: false, searchOpen: false, [k]: !r[k] });
 
   return (
-    <div className="relative z-30 flex h-14 shrink-0 items-center gap-1 border-b border-line bg-bg px-2" onMouseLeave={close}>
+    <div className="relative z-30 flex h-14 shrink-0 items-center gap-1 whitespace-nowrap border-b border-line bg-bg px-2" onMouseLeave={close}>
       {!r.leftOpen && (
         <IconButton title="展開側欄" onClick={() => r.set({ leftOpen: true })}>
           <PanelLeftOpen size={18} />
@@ -102,13 +104,21 @@ export function Toolbar() {
 
       <span className="mx-1 h-6 w-px bg-line" />
 
+      <button
+        type="button"
+        onClick={() => r.set({ onepagerOpen: true })}
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-accent-strong hover:bg-accent-soft"
+        title="一頁速覽：3 分鐘掌握研究問題、方法、發現"
+      >
+        <ScrollText size={16} /> <span className="hidden xl:inline">速覽</span>
+      </button>
       <div className="relative">
         <button
           type="button"
           onClick={() => setAutoOpen((v) => !v)}
           className={cx("inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm", r.showAuto ? "bg-accent-soft text-accent-strong" : "hover:bg-muted")}
         >
-          <Highlighter size={16} /> <span className="hidden lg:inline">自動高亮</span>
+          <Highlighter size={16} /> <span className="hidden xl:inline">自動高亮</span>
         </button>
         {autoOpen && <AutoHighlightMenu onClose={close} />}
       </div>
@@ -118,7 +128,7 @@ export function Toolbar() {
         className={cx("inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm", r.regionMode ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300" : "hover:bg-muted")}
         title="框選圖表，讓 AI 解讀"
       >
-        <ScanSearch size={16} /> <span className="hidden lg:inline">{r.regionMode ? "框選圖表中…" : "圖片說明"}</span>
+        <ScanSearch size={16} /> <span className="hidden xl:inline">{r.regionMode ? "框選圖表中…" : "圖片說明"}</span>
       </button>
       <Segmented
         className="ml-1 hidden md:inline-flex"
@@ -132,33 +142,7 @@ export function Toolbar() {
       />
 
       <div className="ml-auto flex items-center gap-1">
-        {job && job.stage !== "done" && (
-          <span
-            title={job.error}
-            className={cx(
-              "hidden items-center gap-1 rounded-full px-2.5 py-1 text-xs sm:inline-flex",
-              job.stage === "error" ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-muted text-ink-soft",
-            )}
-          >
-            {job.stage !== "error" && <Loader2 size={12} className="animate-spin" />}
-            {job.stage === "translating"
-              ? `翻譯中 ${job.pagesDone}/${job.pagesTotal}`
-              : job.stage === "error"
-                ? "部分頁面失敗"
-                : job.stage === "overview"
-                  ? "建立術語表"
-                  : job.stage === "meta"
-                    ? "查詢書目"
-                    : job.stage === "related"
-                      ? "尋找相關論文"
-                      : "處理中"}
-            {job.stage === "error" && (
-              <button type="button" className="ml-1 underline" onClick={() => enqueue(data.paperId, true)}>
-                重試
-              </button>
-            )}
-          </span>
-        )}
+        {job && job.stage !== "done" && <JobChip />}
         {mockCount > 0 && (
           <span className="hidden rounded-full bg-amber-100 px-2.5 py-1 text-xs text-amber-800 xl:inline dark:bg-amber-950 dark:text-amber-300" title="伺服器沒有 Gemini key，目前是示範譯文">
             示範譯文
@@ -182,6 +166,64 @@ export function Toolbar() {
   );
 }
 
+const STAGE_LABEL: Record<string, string> = {
+  queued: "排隊中",
+  parsing: "解析版面",
+  meta: "查詢書目",
+  overview: "導讀與全文高亮",
+  related: "尋找相關論文",
+  onepager: "產生一頁速覽",
+};
+
+function JobChip() {
+  const data = useReaderData();
+  const setApp = useApp((s) => s.set);
+  const job = data.job!;
+  const [open, setOpen] = useState(false);
+  const paused = job.stage === "paused";
+  const bad = job.stage === "error";
+  const label = paused
+    ? "今日額度已用完"
+    : bad
+      ? "部分失敗"
+      : job.stage === "translating"
+        ? `翻譯中 ${job.pagesDone}/${job.pagesTotal}`
+        : STAGE_LABEL[job.stage] ?? "處理中";
+  return (
+    <div className="relative hidden sm:block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs",
+          bad || paused ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-muted text-ink-soft",
+        )}
+      >
+        {!bad && !paused && <Loader2 size={12} className="animate-spin" />}
+        {label}
+        {job.note && !paused && <span className="max-w-40 truncate text-amber-700 dark:text-amber-300">・{job.note}</span>}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 z-40 w-80 rounded-xl border border-line bg-bg p-3 text-xs shadow-[var(--shadow)]">
+          <div className="mb-2 font-medium">{label}</div>
+          {(job.note || job.error) && <p className="mb-2 text-ink-soft">{job.note || job.error}</p>}
+          {paused && job.pausedUntil && <p className="mb-2 text-ink-faint">預計 {new Date(job.pausedUntil).toLocaleString("zh-TW", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" })} 自動繼續。</p>}
+          <div className="flex flex-wrap gap-2">
+            {(paused || bad) && (
+              <Button className="!px-2 !py-1 text-xs" onClick={() => (unpause(data.paperId), setOpen(false))}>
+                <RefreshCw size={12} /> 立即重試
+              </Button>
+            )}
+            <Button className="!px-2 !py-1 text-xs" onClick={() => (setApp({ settingsOpen: true }), setOpen(false))}>
+              更換模型方案
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MenuBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className="block w-full px-3 py-1.5 text-left hover:bg-muted">
@@ -196,9 +238,9 @@ function AutoHighlightMenu({ onClose }: { onClose: () => void }) {
   const set = useReader((s) => s.set);
   const counts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const t of data.trans.values()) if (t.c) m.set(t.c, (m.get(t.c) ?? 0) + 1);
+    for (const c of data.cats.values()) m.set(c, (m.get(c) ?? 0) + 1);
     return m;
-  }, [data.trans]);
+  }, [data.cats]);
   return (
     <div className="absolute left-0 top-11 w-[340px] rounded-2xl border border-line bg-bg shadow-[var(--shadow)]">
       <div className="flex items-stretch border-b border-line">
@@ -359,10 +401,26 @@ function InfoPanel() {
             自動偵測：{detected != null ? `PDF 第 1 頁 = p. ${detected + 1}` : "未偵測到"}；目前第 {data.model.pages.length ? useReader.getState().currentPage + 1 : 0} 頁 = p. {printedPage(p, data.model, useReader.getState().currentPage) ?? "?"}
           </div>
         </div>
+        <DoiFixer />
         <div className="flex flex-wrap gap-2 border-t border-line pt-3">
-          <Button className="text-xs" onClick={() => enqueue(p.id, true)}>
+          <Button className="text-xs" onClick={() => unpause(p.id)}>
             <RefreshCw size={13} /> 繼續未完成的步驟
           </Button>
+          {(data.model.ev ?? 1) < ENGINE_VERSION && (
+            <Button
+              className="text-xs"
+              title="用新版版面解析重新切句；這篇的劃線與解釋會對不上，會一併清除"
+              onClick={async () => {
+                if (!confirm("用新版版面解析重新處理這篇？譯文、自動高亮會重跑，這篇的劃線與解釋會被清除。")) return;
+                await db.highlights.where("paperId").equals(p.id).delete();
+                await db.explanations.where("paperId").equals(p.id).delete();
+                await resetTranslations(p.id, { model: true });
+                enqueue(p.id, true);
+              }}
+            >
+              用新版解析重跑
+            </Button>
+          )}
           <Button
             variant="danger"
             className="text-xs"
@@ -378,6 +436,36 @@ function InfoPanel() {
         {data.job?.error && <div className="text-xs text-red-600">{data.job.error}</div>}
       </div>
     </Floating>
+  );
+}
+
+function DoiFixer() {
+  const data = useReaderData();
+  const p = data.paper;
+  const [doi, setDoi] = useState(p.doi ?? "");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div>
+      <div className="mb-1 font-medium">書目比對</div>
+      {!p.openalexId && <div className="mb-1 text-xs text-amber-700 dark:text-amber-300">還沒有對應到資料庫中的書目，引用卡片與相關論文會受限。可貼上 DOI 後重新比對。</div>}
+      <div className="flex items-center gap-2">
+        <input className="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1 text-xs" placeholder="10.1509/jmkg.73.2.70" value={doi} onChange={(e) => setDoi(e.target.value)} />
+        <Button
+          className="!px-2 !py-1 text-xs"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            const d = doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase() || undefined;
+            const w = await lookupMeta(p.id, data.model, d);
+            setBusy(false);
+            toast(w ? `已對應：${w.title}` : "找不到這篇的書目，請確認 DOI", w ? "info" : "error");
+            if (w) void refreshRelated(p.id, "forYou").catch(() => {});
+          }}
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" /> : "重新比對"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

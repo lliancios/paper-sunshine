@@ -96,7 +96,7 @@ export async function getWork(idOrDoi: { id?: string; doi?: string }): Promise<O
 function norm(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9一-鿿]+/g, " ").trim();
 }
-function dice(a: string, b: string) {
+export function dice(a: string, b: string) {
   const bi = (s: string) => {
     const m = new Map<string, number>();
     for (let i = 0; i < s.length - 1; i++) m.set(s.slice(i, i + 2), (m.get(s.slice(i, i + 2)) ?? 0) + 1);
@@ -109,6 +109,21 @@ function dice(a: string, b: string) {
   for (const [k, v] of A) (inter += Math.min(v, B.get(k) ?? 0)), (total += v);
   for (const v of B.values()) total += v;
   return total ? (2 * inter) / total : 0;
+}
+
+/** Exact lookup by journal ISSN + year + first page (works for PDFs without a printed DOI). */
+export async function findByBiblio(b: { issn: string[]; year?: number; firstPage?: string; volume?: string }): Promise<OAWork | null> {
+  if (!b.issn.length || !b.firstPage) return null;
+  const filter = [
+    `primary_location.source.issn:${b.issn.slice(0, 4).join("|")}`,
+    b.year ? `publication_year:${b.year}` : "",
+    `biblio.first_page:${b.firstPage}`,
+    b.volume ? `biblio.volume:${b.volume}` : "",
+  ]
+    .filter(Boolean)
+    .join(",");
+  const r = await oa<{ results: OAWork[] }>("/works", { filter, per_page: "3", select: SELECT });
+  return r.results[0] ?? null;
 }
 
 export async function findByTitle(title: string): Promise<OAWork | null> {

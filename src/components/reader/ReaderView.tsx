@@ -14,6 +14,7 @@ import { SunMark } from "../SunMark";
 import { cx } from "../ui";
 import { createHighlight } from "./actions";
 import { PagesViewport } from "./Pages";
+import { OnePagerModal } from "./OnePager";
 import { ExplainPopover, FigurePanel, HighlightPopover, SelectionToolbar, TranslatePopover } from "./Popovers";
 import { type ReaderData, ReaderDataProvider, useLoadReaderData } from "./ReaderData";
 import { RightPanel, RightRail } from "./RightSidebar";
@@ -36,6 +37,7 @@ export function ReaderView({ paperId }: { paperId: string }) {
       relatedOpen: false,
       savedOpen: false,
       regionMode: false,
+      onepagerOpen: false,
       currentPage: 0,
     });
   }, [paperId]);
@@ -192,6 +194,7 @@ function ReaderShell({ data }: { data: ReaderData }) {
       <ExplainPopover />
       <TranslatePopover />
       <FigurePanel />
+      <OnePagerModal />
     </div>
   );
 }

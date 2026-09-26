@@ -2,7 +2,7 @@
 
 AI 論文閱讀器。以 Moonlight 的功能為基底，補上它做不到的一件事：**原文與版面翻譯兩側都能劃線、懸浮對照、解釋，而且即時同步。**
 
-> 目前版本：**v0.1.0**（MVP）。版本規則見文末。
+> 目前版本：**v0.2.0**。版本規則見文末，變更見 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 核心差異：句子身分證
 
@@ -13,15 +13,16 @@ Moonlight 的版面翻譯是另外產生一份 PDF，中文側只是一張圖，
 - 自動高亮（創新性、方法、結果、研究缺口、限制）兩側同時顯示。
 - 中文側不是圖片，而是蓋在原頁面上的活文字：圖、表、公式保持原樣，文字可選取、解釋、複製引用。
 
-## v0.1.0 功能
+## 功能
 
 | 區塊 | 功能 |
 |---|---|
 | 文獻庫 | 清單／卡片檢視、評分、註釋、標籤、資料夾、搜尋、篩選、拖放上傳、以 DOI 加入（沒全文先建書目，之後拖入 PDF 依 DOI 自動配對） |
-| 閱讀器 | 並排檢視／僅看譯文／僅看原文、縮放（含 Ctrl/⌘ 滾輪）、頁碼跳轉、目錄、原文與譯文全文搜尋 |
-| 翻譯 | 上傳後背景整篇翻譯，逐頁存檔，關掉網頁下次從斷點續跑；正在讀的頁面優先翻 |
+| 閱讀器 | 並排檢視（左右兩個同步捲動區，放大後仍對齊）／僅看譯文／僅看原文、縮放（含 Ctrl/⌘ 滾輪）、頁碼跳轉、目錄、原文與譯文全文搜尋 |
+| 翻譯 | 上傳後背景整篇翻譯（串流批次，一篇約 6 到 8 次呼叫），邊翻邊顯示，關掉網頁下次從斷點續跑；正在讀的頁面優先翻；額度用完自動暫停、隔天續跑 |
+| 一頁速覽 | 依 Keshav 三遍讀法與五個 C 整理研究問題、理論、方法、發現、貢獻、限制與可引用句，每個論點附頁碼，點了跳回原句 |
 | 術語 | 先建全文術語表，只在全文第一次出現時用「English（中文）」格式，平行翻譯也不會每頁重複 |
-| 自動高亮 | 與翻譯同一次呼叫產生，不額外花費；三種配色（Sunshine Basic、Deep Spread、Point Stroke）；分類可自訂 |
+| 自動高亮 | 上傳後一次產生全文高亮（與導讀同一次呼叫），還沒翻譯的頁面也有；三種配色（Sunshine Basic、Deep Spread、Point Stroke）；分類可自訂 |
 | 劃線 | 5 色劃線、評論，兩側同步；鍵盤 1 到 5 快速劃線 |
 | 解釋 | 選取文字按「解釋」（或按 E）；原文選取可按「翻譯」（或按 T）看對照 |
 | 圖片說明 | 框選任意區域，或按圖表標題旁的「解讀這張圖」；提供「解讀這張圖」與「研究概念模型分析」 |
@@ -37,16 +38,29 @@ Moonlight 的版面翻譯是另外產生一份 PDF，中文側只是一張圖，
 
    | 名稱 | 值 |
    |---|---|
-   | `GEMINI_API_KEY` | Google AI Studio 的金鑰 |
-   | `OPENALEX_API_KEY` | [openalex.org/settings/api](https://openalex.org/settings/api) 的免費金鑰 |
    | `APP_PASSCODE` | 自己設一組密碼，保護你的 API 額度 |
-   | `GEMINI_MODEL_TRANSLATE`（選填） | 預設 `gemini-3.8-flash` |
-   | `GEMINI_MODEL_CHAT`（選填） | 預設 `gemini-3.8-flash` |
+   | `GEMINI_API_KEY` | Google AI Studio 的金鑰（免費） |
+   | `OPENALEX_API_KEY` | [openalex.org/settings/api](https://openalex.org/settings/api) 的免費金鑰，相關論文需要 |
+   | `DEEPSEEK_API_KEY`（選填） | 最省的付費選項，一篇論文約 0.01 到 0.05 美元 |
+   | `OPENROUTER_API_KEY`、`SILICONFLOW_API_KEY`、`GROQ_API_KEY`（選填） | 其他備援 |
+   | `CUSTOM_LLM_BASE_URL`、`CUSTOM_LLM_API_KEY`（選填） | 任何 OpenAI 相容服務 |
+
+   AI 金鑰至少設一個；哪個模型負責翻譯、哪個負責解釋，在 App 的「設定 → 模型」選擇。
 
 3. 按 **Deploy**。完成後打開網址，輸入 `APP_PASSCODE`。
 4. iPad／手機：用 Safari 打開網址 → 分享 → **加入主畫面**。
 
 之後每次 push 到 `main`，Vercel 會自動重新部署。沒有設定 `GEMINI_API_KEY` 時會進入示範模式（假譯文），方便先看介面。
+
+## 模型與額度
+
+| 方案 | 翻譯 | 解釋與討論 | 適合 |
+|---|---|---|---|
+| Gemini 免費 | `gemini:gemini-3.5-flash-lite`（每日約 500 次） | `gemini:gemini-3.8-flash`（每日約 20 次） | 先試用 |
+| DeepSeek 最省 | `deepseek:deepseek-flash` | 同左 | 大量閱讀，一篇約 0.01 到 0.05 美元 |
+| 混搭 | DeepSeek | Gemini Flash | 翻譯便宜、解釋品質高 |
+
+額度用完時：每分鐘上限會自動等；每日上限會先改用 Flash-Lite，仍不行就暫停，等太平洋時間午夜（台灣下午 3 點或 4 點）自動續跑。設定 → 模型 → **執行診斷** 可一次檢查所有服務。
 
 ## 本機開發
 
@@ -62,9 +76,10 @@ npm run typecheck
 
 ```
 src/engine/        PDF 版面解析：行 → 段落區塊 → 閱讀順序 → 句子（ID、字元幾何）
-src/lib/pipeline   背景流程：解析 → 書目 → 術語表 → 逐頁翻譯與自動高亮 → 相關論文
-src/lib/db         IndexedDB（Dexie）；使用者資料都有 updatedAt 與刪除標記，v0.2.0 可直接同步
-src/app/api/       伺服器端：Gemini（翻譯、解釋、討論、圖片）、OpenAlex（書目、引用、推薦）
+src/lib/pipeline   背景流程：解析 → 書目 → 導讀（術語表、全文高亮）→ 批次翻譯 → 相關論文 → 一頁速覽
+src/lib/db         IndexedDB（Dexie）；使用者資料都有 updatedAt 與刪除標記，可直接同步
+src/lib/server/llm 模型層：Gemini 與 OpenAI 相容服務，額度用完自動改用備援模型
+src/app/api/       伺服器端：AI（翻譯、導讀、解釋、討論、圖片、一頁速覽）、OpenAlex 與 Crossref（書目、引用、推薦）、診斷
 src/components/reader/  閱讀器：SourceLayer（原文）、TranslatedLayer（版面翻譯）、Popovers、側邊欄
 ```
 
@@ -72,9 +87,9 @@ API 金鑰只存在伺服器端，瀏覽器只保存 `APP_PASSCODE`。
 
 ## 路線圖
 
-- **v0.2.0**：Supabase 雲端同步（電腦、iPad、手機即時看到同一份劃線，只同步變動的那一筆）、Zotero API 一鍵同步
-- **v0.3.0**：Apple Pencil 手寫劃記、片語級跨語對齊（選配）
-- 之後：引用卡片（點文中引用直接看摘要）、Scholar Deep Search、Chrome 擴充
+- **v0.3.0**：加入主畫面成為 App（離線可讀）、Apple Pencil 手寫、跨裝置同步（Supabase：PDF、劃線、筆記、手寫、譯文）
+- **v0.4.0**：論文寫作區（章節、從文獻庫插入引用、APA 參考文獻、匯出 Word 不跑版、AI 助手）
+- 之後：Zotero API 一鍵同步、引用卡片（點文中引用直接看摘要）、片語級跨語對齊
 
 ## 版本規則
 
