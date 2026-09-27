@@ -148,7 +148,7 @@ export function scrollToSentence(model: DocModel, sid: string, off = 0) {
  * Jumps to cited sentences and keeps them outlined on both sides (until the
  * reader dismisses it), with a "p.71 左欄第 12 行" tag and a way back.
  */
-export function scrollToSentences(model: DocModel, sids: string[], paper?: Paper) {
+export function scrollToSentences(model: DocModel, sids: string[], paper?: Paper, trail?: { list: string[][]; index: number }) {
   const ok = sids.filter((s) => model.sentences[s]);
   if (!ok.length) return;
   const first = model.sentences[ok[0]];
@@ -160,7 +160,7 @@ export function scrollToSentences(model: DocModel, sids: string[], paper?: Paper
   const label = `p.${printedPage(paper, model, page) ?? page + 1}${pos ? ` ${lineLabel(pos)}` : ""}${ok.length > 1 ? `（共 ${ok.length} 句）` : ""}`;
   const back = st.focus?.back ?? st.getScrollPos?.() ?? null;
   st.scrollToPage?.(page, Math.max(0, pc.r[1] - 30), pc.r[0]);
-  st.set({ focus: { sids: ok, page, label, back, at: Date.now() }, flash: { sid: ok[0], sids: ok, at: Date.now() } });
+  st.set({ focus: { sids: ok, page, label, back, trail, at: Date.now() }, flash: { sid: ok[0], sids: ok, at: Date.now() } });
 }
 
 /** Clears the citation focus; optionally returns to where the reader was. */

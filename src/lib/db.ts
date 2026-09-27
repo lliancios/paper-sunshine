@@ -32,6 +32,7 @@ export interface Paper {
   addedAt: number;
   updatedAt: number;
   lastOpenedAt?: number;
+  readPage?: number; // page index being read last time (synced, so another device resumes there)
   rating: number;
   note: string;
   tags: string[];

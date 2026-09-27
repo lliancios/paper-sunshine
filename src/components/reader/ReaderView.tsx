@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { ExternalLink, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { printedPage } from "@/lib/citation";
 import { db } from "@/lib/db";
 import { HIGHLIGHT_COLORS } from "@/lib/defaults";
 import { enqueue } from "@/lib/pipeline";
@@ -12,14 +13,14 @@ import { ErrorBoundary } from "../ErrorBoundary";
 import { LeftSidebar } from "../LeftSidebar";
 import { RelatedPanel, SavedPanel } from "../WorkPanels";
 import { SunMark } from "../SunMark";
-import { cx } from "../ui";
+import { cx, toast } from "../ui";
 import { createHighlight, quickHighlight } from "./actions";
 import { inkUndo } from "./InkLayer";
 import { InkToolbar } from "./InkToolbar";
 import { PagesViewport } from "./Pages";
 import { OnePagerModal } from "./OnePager";
 import { ExplainPopover, FigurePanel, HighlightPopover, SelectionToolbar, TranslatePopover } from "./Popovers";
-import { type ReaderData, ReaderDataProvider, useLoadReaderData } from "./ReaderData";
+import { type ReaderData, ReaderDataProvider, scrollToSentences, useLoadReaderData } from "./ReaderData";
 import { RightPanel, RightRail } from "./RightSidebar";
 import { Toolbar } from "./Toolbar";
 
@@ -98,6 +99,31 @@ function ReaderShell({ data }: { data: ReaderData }) {
     if (w < 1280) set({ leftOpen: false }); // iPad: give the pages the room
     if (w < 900) set({ viewMode: "tgt" }); // phone: translation only
   }, [set]);
+
+  // Resume where this paper was last read (on any device), then keep the position saved.
+  const currentPage = useReader((s) => s.currentPage);
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const last = data.paper.readPage ?? 0;
+    if (last > 0 && last < data.model.pages.length) {
+      setTimeout(() => {
+        useReader.getState().scrollToPage?.(last);
+        const p = printedPage(data.paper, data.model, last) ?? String(last + 1);
+        toast(`接續上次閱讀的位置：p.${p}`);
+      }, 350);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!resumed.current) return;
+    const t = setTimeout(() => {
+      const d = dataRef.current;
+      if (d.paper.readPage !== currentPage) void db.papers.update(d.paperId, { readPage: currentPage, updatedAt: Date.now() });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [currentPage]);
 
   // Selection, click-on-highlight, double-click quick highlight, and keyboard shortcuts for both sides.
   useEffect(() => {
@@ -184,6 +210,16 @@ function ReaderShell({ data }: { data: ReaderData }) {
       if (e.key === "Escape") {
         clearSelection();
         st.set({ selection: null, explain: null, translatePop: null, highlightPop: null, figure: null, regionMode: false, focus: null });
+        return;
+      }
+      // ← / → step through the summary's citations while one is in focus.
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && st.focus?.trail && !st.selection) {
+        const t = st.focus.trail;
+        const i = t.index + (e.key === "ArrowLeft" ? -1 : 1);
+        if (i >= 0 && i < t.list.length) {
+          e.preventDefault();
+          scrollToSentences(dataRef.current.model, t.list[i], dataRef.current.paper, { list: t.list, index: i });
+        }
         return;
       }
       const sel = st.selection;

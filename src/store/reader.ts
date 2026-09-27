@@ -41,6 +41,7 @@ export interface FocusMark {
   page: number;
   label: string; // "p.71 左欄第 12 行"
   back: { top: number; left: number } | null; // where the reader was before jumping
+  trail?: { list: string[][]; index: number }; // all citations of the summary, to step through
   at: number;
 }
 

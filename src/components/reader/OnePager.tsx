@@ -81,9 +81,12 @@ export function citePlain(md: string, paper: Paper, model: DocModel) {
 const inflight = new Set<string>();
 
 /** Markdown whose [[sid]] citations render as page chips that jump to the sentences. */
-export function CitedMarkdown({ md, className, onCite }: { md: string; className?: string; onCite?: (sids: string[]) => void }) {
+type Trail = { list: string[][]; index: number };
+export function CitedMarkdown({ md, className, onCite }: { md: string; className?: string; onCite?: (sids: string[], trail: Trail) => void }) {
   const data = useReaderData();
   const linked = useMemo(() => citeLinks(md, data.paper, data.model), [md, data.paper, data.model]);
+  // Every citation in order, so the focus tag can step to the previous / next one.
+  const all = useMemo(() => [...linked.matchAll(/\(#cite-([^)]+)\)/g)].map((m) => m[1]), [linked]);
   // Hover preview: the cited sentence(s) in the original and in translation.
   const preview = (sids: string[]) =>
     sids
@@ -107,7 +110,11 @@ export function CitedMarkdown({ md, className, onCite }: { md: string; className
                   type="button"
                   title={preview(sids)}
                   className="ps-cite"
-                  onClick={() => (onCite ? onCite(sids) : scrollToSentences(data.model, sids, data.paper))}
+                  onClick={() => {
+                    const trail = { list: all.map((a) => a.split(",")), index: Math.max(0, all.indexOf(sids.join(","))) };
+                    if (onCite) onCite(sids, trail);
+                    else scrollToSentences(data.model, sids, data.paper, trail);
+                  }}
                 >
                   {children}
                 </button>
@@ -209,10 +216,10 @@ function OnePagerBody({ variant }: { variant: "panel" | "modal" }) {
         <CitedMarkdown
           md={md}
           className={cx("ps-onepager", variant === "panel" && "is-panel")}
-          onCite={(sids) => {
+          onCite={(sids, trail) => {
             // In the enlarged view, dock the summary to the sidebar so it stays visible.
             if (variant === "modal") set({ onepagerOpen: false, rightTab: "onepager" });
-            setTimeout(() => scrollToSentences(data.model, sids, data.paper), variant === "modal" ? 80 : 0);
+            setTimeout(() => scrollToSentences(data.model, sids, data.paper, trail), variant === "modal" ? 80 : 0);
           }}
         />
         {rec?.model && live === null && <div className="mt-4 text-right text-[11px] text-ink-faint">由 {rec.model} 產生</div>}

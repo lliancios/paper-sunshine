@@ -4,14 +4,14 @@
 // them aligned is just copying scrollTop/scrollLeft from the pane you are
 // touching to the other one. Zoom in and the right pane still shows the same
 // corner of the same page as the left pane.
-import { MapPin, Undo2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MapPin, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Side } from "@/engine/types";
 import { acquireRender, blit, samplePaperColors } from "@/lib/pdf";
 import { setFocus } from "@/lib/pipeline";
 import { useReader } from "@/store/reader";
 import { cx } from "../ui";
-import { clearFocus, useReaderData } from "./ReaderData";
+import { clearFocus, scrollToSentences, useReaderData } from "./ReaderData";
 import { SourceLayer } from "./SourceLayer";
 import { TranslatedLayer } from "./TranslatedLayer";
 import { InkLayer } from "./InkLayer";
@@ -217,7 +217,7 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
 
 /** "p.71 左欄第 12 行" tag above the first cited line, with a way back. Shown in the first pane only. */
 function FocusTag({ index, scale, side }: { index: number; scale: number; side: Side }) {
-  const { model } = useReaderData();
+  const { model, paper } = useReaderData();
   const focus = useReader((s) => (s.focus && s.focus.page === index ? s.focus : null));
   const firstPane = useReader((s) => s.viewMode !== "both" || side === "src");
   if (!focus || !firstPane) return null;
@@ -229,6 +229,37 @@ function FocusTag({ index, scale, side }: { index: number; scale: number; side: 
     <div className="ps-focus-tag" style={{ top, left }} data-popover>
       <MapPin size={12} />
       <span className="px-1 font-medium">{focus.label}</span>
+      {focus.trail && focus.trail.list.length > 1 && (
+        <>
+          <button
+            type="button"
+            title="上一個出處"
+            disabled={focus.trail.index === 0}
+            className="disabled:opacity-40"
+            onClick={() => {
+              const t = focus.trail!;
+              scrollToSentences(model, t.list[t.index - 1], paper, { list: t.list, index: t.index - 1 });
+            }}
+          >
+            <ChevronLeft size={13} />
+          </button>
+          <span className="tabular-nums text-[11px] opacity-90">
+            {focus.trail.index + 1}/{focus.trail.list.length}
+          </span>
+          <button
+            type="button"
+            title="下一個出處"
+            disabled={focus.trail.index >= focus.trail.list.length - 1}
+            className="disabled:opacity-40"
+            onClick={() => {
+              const t = focus.trail!;
+              scrollToSentences(model, t.list[t.index + 1], paper, { list: t.list, index: t.index + 1 });
+            }}
+          >
+            <ChevronRight size={13} />
+          </button>
+        </>
+      )}
       {focus.back && (
         <button type="button" title="回到跳轉前閱讀的位置" onClick={() => clearFocus(true)}>
           <Undo2 size={12} /> 回原處
