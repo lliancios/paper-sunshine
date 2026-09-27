@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 // Identifies this deploy so open pages can tell when a newer one is live.
-const BUILD_ID = (process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || `local-${Date.now().toString(36)}`;
+// (Vercel only exposes the git sha when system env vars are enabled; a build timestamp works either way.)
+const BUILD_ID = (process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || `b-${Date.now().toString(36)}`;
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

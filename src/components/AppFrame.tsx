@@ -59,7 +59,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
     try {
       const r = await health();
       // A newer deploy is live: offer a reload (old pages can break on missing code files).
-      set({ health: r, ...(r.build && BUILD_ID && r.build !== BUILD_ID && !BUILD_ID.startsWith("local-") ? { newVersion: true } : {}) });
+      set({ health: r, ...(r.build && BUILD_ID && r.build !== BUILD_ID && process.env.NODE_ENV === "production" ? { newVersion: true } : {}) });
       return r;
     } catch {
       return null;
