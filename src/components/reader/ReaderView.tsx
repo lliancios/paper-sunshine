@@ -13,7 +13,7 @@ import { LeftSidebar } from "../LeftSidebar";
 import { RelatedPanel, SavedPanel } from "../WorkPanels";
 import { SunMark } from "../SunMark";
 import { cx } from "../ui";
-import { createHighlight } from "./actions";
+import { createHighlight, quickHighlight } from "./actions";
 import { inkUndo } from "./InkLayer";
 import { InkToolbar } from "./InkToolbar";
 import { PagesViewport } from "./Pages";
@@ -99,15 +99,35 @@ function ReaderShell({ data }: { data: ReaderData }) {
     if (w < 900) set({ viewMode: "tgt" }); // phone: translation only
   }, [set]);
 
-  // Selection, click-on-highlight, and keyboard shortcuts for both sides.
+  // Selection, click-on-highlight, double-click quick highlight, and keyboard shortcuts for both sides.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let suppressSelUntil = 0;
+    let lastTap: { t: number; x: number; y: number; sid: string } | null = null;
     const onSelChange = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
+        if (Date.now() < suppressSelUntil) return;
         const s = readSelection();
         if (s) useReader.getState().set({ selection: s, highlightPop: null });
       }, 160);
+    };
+    // Double-click (or double-tap) a sentence: highlight the whole sentence in the quick colour.
+    const quick = async (sid: string, side: "src" | "tgt") => {
+      const d = dataRef.current;
+      suppressSelUntil = Date.now() + 600;
+      clearSelection();
+      useReader.getState().set({ selection: null });
+      if (d.highlights.some((h) => h.style === "highlight" && h.ranges.some((r) => r.sid === sid))) return;
+      await quickHighlight(d.paperId, d.model, sid, side, d.trans.get(sid)?.t, d.settings.quickColor || "green");
+    };
+    const onDblClick = (e: MouseEvent) => {
+      const st = useReader.getState();
+      if (st.inkMode || st.regionMode) return;
+      const t = e.target as HTMLElement;
+      if (t.closest("[data-popover]") || !t.closest("[data-side]")) return;
+      const hit = caretAt(e.clientX, e.clientY);
+      if (hit) void quick(hit.sid, hit.side);
     };
     const onPointerDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement;
@@ -128,6 +148,16 @@ function ReaderShell({ data }: { data: ReaderData }) {
       }
       const hit = caretAt(e.clientX, e.clientY);
       if (!hit) return st.set({ highlightPop: null });
+      if (e.pointerType !== "mouse") {
+        // Touch has no reliable dblclick: two taps on the same sentence within 350 ms.
+        const now = Date.now();
+        if (lastTap && now - lastTap.t < 350 && lastTap.sid === hit.sid && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+          lastTap = null;
+          void quick(hit.sid, hit.side);
+          return;
+        }
+        lastTap = { t: now, x: e.clientX, y: e.clientY, sid: hit.sid };
+      }
       const d = dataRef.current;
       const h = [...d.highlights].reverse().find((x) =>
         x.ranges.some((r) => r.sid === hit.sid && (x.side !== hit.side || (hit.off >= r.start && hit.off <= r.end))),
@@ -174,12 +204,14 @@ function ReaderShell({ data }: { data: ReaderData }) {
     document.addEventListener("selectionchange", onSelChange);
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("dblclick", onDblClick);
     document.addEventListener("keydown", onKey);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("selectionchange", onSelChange);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("dblclick", onDblClick);
       document.removeEventListener("keydown", onKey);
     };
   }, []);

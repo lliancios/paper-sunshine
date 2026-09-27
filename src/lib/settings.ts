@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelChat: DEFAULT_MODELS.chat,
   hoverStyle: "gray",
   highlightDensity: "normal",
+  quickColor: "green",
   autoOnepager: true,
   autoTranslate: true,
   theme: "system",

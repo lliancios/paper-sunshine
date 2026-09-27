@@ -1,5 +1,5 @@
 "use client";
-import { Copy, Languages, Loader2, MessageSquarePlus, MessagesSquare, Quote, RefreshCw, ScanSearch, Sparkles, Trash2, X } from "lucide-react";
+import { BookOpenText, Copy, Languages, Loader2, MessageSquarePlus, MessagesSquare, Quote, RefreshCw, ScanSearch, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { aiJson, aiStream, friendlyError } from "@/lib/api";
 import type { TranslateResponse } from "@/lib/apiTypes";
@@ -28,12 +28,28 @@ function belowRect(rect: DOMRect, w: number, h: number) {
 
 // ------------------------------------------------------ selection bar ----
 
+/** Look the selection up elsewhere (opens a new tab). */
+function lookups(text: string) {
+  const q = text.replace(/\s+/g, " ").trim().slice(0, 200);
+  const e = encodeURIComponent(q);
+  const word = /^[A-Za-z][A-Za-z' -]{0,40}$/.test(q) && q.split(" ").length <= 4;
+  return [
+    { label: "維基百科（中文）", url: `https://zh.wikipedia.org/w/index.php?search=${e}&variant=zh-tw` },
+    { label: "維基百科（英文）", url: `https://en.wikipedia.org/w/index.php?search=${e}` },
+    { label: "Google", url: `https://www.google.com/search?q=${e}` },
+    { label: "Google 學術", url: `https://scholar.google.com/scholar?q=${e}` },
+    ...(word ? [{ label: "劍橋英漢字典", url: `https://dictionary.cambridge.org/dictionary/english-chinese-traditional/${encodeURIComponent(q.toLowerCase().replace(/ /g, "-"))}` }] : []),
+  ];
+}
+
 export function SelectionToolbar() {
   const data = useReaderData();
   const sel = useReader((s) => s.selection);
   const set = useReader((s) => s.set);
+  const [lookOpen, setLookOpen] = useState(false);
+  useEffect(() => setLookOpen(false), [sel]);
   if (!sel) return null;
-  const pos = belowRect(sel.rect, 420, 44);
+  const pos = belowRect(sel.rect, 470, 44);
   const page = printedPage(data.paper, data.model, pageOfRange(data.model, sel.side, sel.ranges[0]));
 
   const done = () => {
@@ -81,6 +97,28 @@ export function SelectionToolbar() {
           <Languages size={16} />
         </ToolBtn>
       )}
+      <div className="relative">
+        <ToolBtn title="查詢：維基百科、Google、Google 學術、字典" onClick={() => setLookOpen((v) => !v)}>
+          <BookOpenText size={16} /> <span className="text-xs">查詢</span>
+        </ToolBtn>
+        {lookOpen && (
+          <div className="absolute left-0 top-10 z-10 w-44 overflow-hidden rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]">
+            {lookups(sel.text).map((l) => (
+              <button
+                key={l.label}
+                type="button"
+                className="block w-full px-3 py-1.5 text-left hover:bg-muted"
+                onClick={() => {
+                  window.open(l.url, "_blank", "noopener,noreferrer");
+                  done();
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <ToolBtn title="複製" onClick={() => (copyText(sel.text), done())}>
         <Copy size={16} />
       </ToolBtn>
@@ -109,7 +147,7 @@ export function HighlightPopover() {
   const [note, setNote] = useState(h?.note ?? "");
   useEffect(() => setNote(h?.note ?? ""), [h?.id, h?.note]);
   if (!pop || !h) return null;
-  const pos = clampPos(pop.x - 150, pop.y + 14, 300, pop.editNote || h.note ? 230 : 120);
+  const pos = clampPos(pop.x - 150, pop.y + 14, 300, pop.editNote || h.note ? 270 : 160);
   const page = printedPage(data.paper, data.model, h.page);
   const counterpart =
     h.side === "src"
@@ -148,6 +186,20 @@ export function HighlightPopover() {
             <X size={15} />
           </ToolBtn>
         </div>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {data.settings.categories.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            title={c.description}
+            onClick={() => db.highlights.update(h.id, { c: h.c === c.key ? undefined : c.key, updatedAt: Date.now() })}
+            className={cx("rounded-full border px-2 py-0.5 text-[11px]", h.c === c.key ? "border-transparent font-medium" : "border-line text-ink-soft hover:bg-muted")}
+            style={h.c === c.key ? { background: `${c.color}55`, color: "#1f2328" } : undefined}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
       {counterpart && <div className="mb-2 line-clamp-3 rounded-lg bg-muted px-2 py-1.5 text-xs text-ink-soft">{counterpart}</div>}
       <textarea

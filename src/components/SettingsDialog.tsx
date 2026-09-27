@@ -10,6 +10,7 @@ import {
   DEFAULT_JOURNALS,
   DEFAULT_RESEARCH_CONTEXT,
   DEFAULT_ROLE_PROMPT,
+  HIGHLIGHT_COLORS,
   MODEL_PRESETS,
   TARGET_LANGUAGES,
   TIER_LABEL,
@@ -114,6 +115,20 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                     { value: "amber", label: "琥珀" },
                   ]}
                 />
+              </Field>
+              <Field label="雙擊劃線的顏色" hint="在原文或譯文點兩下（iPad 點兩下），整句直接劃線；之後可在高亮面板改顏色或分類。">
+                <div className="flex gap-2">
+                  {HIGHLIGHT_COLORS.map((c) => (
+                    <button
+                      key={c.key}
+                      type="button"
+                      title={c.label}
+                      onClick={() => up({ quickColor: c.key })}
+                      className={cx("h-7 w-7 rounded-full ring-1 ring-black/10", (draft.quickColor ?? "green") === c.key && "ring-2 ring-ink ring-offset-2 ring-offset-bg")}
+                      style={{ background: c.color }}
+                    />
+                  ))}
+                </div>
               </Field>
               <Field label="自動高亮配色">
                 <Segmented value={draft.colorScheme} onChange={(v) => up({ colorScheme: v })} options={COLOR_SCHEMES.map((c) => ({ value: c.key, label: c.label }))} />

@@ -86,6 +86,7 @@ export interface Highlight {
   side: Side; // the side it was drawn on (precise there, whole sentence on the other side)
   ranges: SentRange[];
   color: string; // key from HIGHLIGHT_COLORS
+  c?: string; // optional category key (same keys as the auto highlights: novelty, method, …)
   style: HighlightStyle;
   note: string;
   text: string;
@@ -250,6 +251,7 @@ export interface AppSettings {
   modelChat: string;
   hoverStyle: "gray" | "green" | "amber";
   highlightDensity: "low" | "normal" | "high";
+  quickColor: string; // double-click / double-tap highlight colour
   autoOnepager: boolean;
   autoTranslate: boolean;
   theme: "system" | "light" | "dark";

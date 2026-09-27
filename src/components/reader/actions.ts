@@ -29,6 +29,31 @@ export async function createHighlight(paperId: string, model: DocModel, sel: Sel
   return id;
 }
 
+/** Double-click / double-tap: highlight the whole sentence on the side it was tapped. */
+export async function quickHighlight(paperId: string, model: DocModel, sid: string, side: Side, translation: string | undefined, color: string) {
+  const s = model.sentences[sid];
+  if (!s) return null;
+  const text = side === "src" ? s.text : (translation ?? "");
+  if (!text) return null;
+  const now = Date.now();
+  const id = uid();
+  const range = { sid, start: 0, end: text.length };
+  await db.highlights.put({
+    id,
+    paperId,
+    side,
+    ranges: [range],
+    color,
+    style: "highlight",
+    note: "",
+    text,
+    page: pageOfRange(model, side, range),
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
 export async function softDelete(table: "highlights" | "explanations", id: string) {
   await db[table].update(id, { deleted: true, updatedAt: Date.now() });
 }

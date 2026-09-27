@@ -1,6 +1,6 @@
 # Handoff: continuing Paper Sunshine in Claude Code
 
-Last updated 2026-09-27 (v0.4.1). Read `CLAUDE.md` first; it holds the invariants.
+Last updated 2026-09-27 (v0.5.0). Read `CLAUDE.md` first; it holds the invariants.
 
 ## Where things stand
 
@@ -13,12 +13,13 @@ Deployed on Vercel from `main` (every push deploys; bumping `package.json` versi
 | v0.3.0 | PWA (offline shell, `/read?id=`), Apple Pencil ink, one-pager in sidebar, error boundaries, chat answers anything |
 | v0.4.0 | Supabase cross-device sync, line-precise citation chips with focus outline, Install App button |
 | v0.4.1 | Clean table of contents (right sidebar), sync diagnostics + repair buttons, library sign-in banner, e2e scripts in repo |
+| v0.5.0 | Double-click quick highlight, unified highlights panel (auto + mine, zh/en/both, categories), lookup menu |
 
 ## Open items, in priority order
 
 1. **Confirm sync works on the owner's real Supabase project.** Only tested against `tests/e2e/fake-supabase.mjs`. If the owner reports an error, ask for the text from 設定 → 跨裝置同步 → 同步診斷. Likely suspects: env vars not redeployed, `schema.sql` not fully run, "Confirm email" still on, iPad running an old cached build (tap the "有新版本" banner or relaunch).
 2. Ideas the owner was offered (not started): reverse links (click a sentence, light up the one-pager lines citing it), remember reading position per paper across devices (store `lastPage` on `papers`), "previous / next citation" stepping, read-aloud of the translation.
-3. Writing studio (v0.5.0): thesis project with chapters, insert citations from the library and highlights, APA bibliography, `.docx` export that keeps layout, AI assistant panel. Dexie tables `projects` and `docs` already exist and are in the sync `ROWS` list.
+3. Writing studio (v0.6.0): thesis project with chapters, insert citations from the library and highlights, APA bibliography, `.docx` export that keeps layout, AI assistant panel. Dexie tables `projects` and `docs` already exist and are in the sync `ROWS` list.
 4. Zotero API sync; citation cards (click an in-text citation to see the reference); phrase-level cross-language alignment.
 
 ## How to work

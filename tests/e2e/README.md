@@ -16,6 +16,8 @@ PDF=tests/fixtures/two-column.pdf SHOTS=/tmp node tests/e2e/reader.mjs
 | `figure-explain-ipad.mjs` | figure explanation, explain via keyboard, iPad tap pins a sentence on both sides |
 | `ink.mjs` | Pencil/mouse strokes stored in page units, mirrored side, eraser, undo |
 | `onepager-focus.mjs` | one-page summary in the sidebar, `[[a, b]]` citations become "p.X 左欄 N 行" chips, focus outline, 回原處, highlight regeneration |
+| `quick-highlight.mjs` | double-click whole-sentence highlight on both sides, unified highlights panel (filters, zh/en/both, categories), lookup menu |
+| `sync-diagnose.mjs` | sync diagnostics and the re-download button against the fake backend |
 | `panels.mjs` | every sidebar tab and the chat open without crashing |
 | `offline.mjs` | service worker: reader opens offline (never visited), library offline, legacy `/read/<id>` |
 | `error-boundary.mjs` | a corrupt record shows an in-panel error card instead of a blank page |

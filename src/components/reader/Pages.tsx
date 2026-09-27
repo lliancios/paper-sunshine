@@ -150,7 +150,7 @@ export function PagesViewport() {
           onTouchStart={() => (leader.current = i)}
           onWheel={() => (leader.current = i)}
           className={cx("scroll-thin relative h-full min-w-0 flex-1 overflow-auto", i > 0 && "border-l border-line")}
-          style={{ overscrollBehavior: "contain" }}
+          style={{ overscrollBehavior: "contain", touchAction: "manipulation" }}
         >
           <div className="flex flex-col items-center gap-4" style={{ padding: PANE_PAD, minWidth: "fit-content" }}>
             {model.pages.map((p) => (

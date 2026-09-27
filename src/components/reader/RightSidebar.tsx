@@ -32,6 +32,7 @@ import { Badge, Button, IconButton, Markdown, Segmented, copyText, cx, relTime, 
 import { fullText, overviewText, softDelete } from "./actions";
 import { CitedMarkdown, OnePagerPanel } from "./OnePager";
 import { OutlinePanel } from "./Outline";
+import { HighlightsPanel as AllHighlightsPanel } from "./HighlightsPanel";
 import { paperLines } from "@/lib/pipeline";
 import { hlColor, scrollToSentence, useReaderData } from "./ReaderData";
 
@@ -142,7 +143,7 @@ export function RightPanel() {
           {tab === "outline" && <OutlinePanel />}
           {tab === "ai" && <AIPanel />}
           {tab === "quiz" && <QuizPanel />}
-          {tab === "highlights" && <HighlightsPanel mode="highlights" />}
+          {tab === "highlights" && <AllHighlightsPanel />}
           {tab === "comments" && <HighlightsPanel mode="comments" />}
           {tab === "explanations" && <ExplanationsPanel />}
           {tab === "notes" && <NotesPanel />}
