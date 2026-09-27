@@ -26,6 +26,10 @@ export async function openPdf(data: ArrayBuffer | Uint8Array): Promise<PDFDocume
     cMapUrl: "/pdfjs/cmaps/",
     cMapPacked: true,
     standardFontDataUrl: "/pdfjs/standard_fonts/",
+    // Scanned pages (JSTOR and other archives) are JBIG2/CCITT/JPEG 2000 images
+    // that pdf.js 6 decodes with wasm modules; without this they render blank.
+    wasmUrl: "/pdfjs/wasm/",
+    iccUrl: "/pdfjs/iccs/",
   }).promise;
 }
 
@@ -193,6 +197,62 @@ export function samplePaperColors(canvas: HTMLCanvasElement, rects: { id: string
     });
     const lum = 0.299 * med[0] + 0.587 * med[1] + 0.114 * med[2];
     out.set(id, lum < 170 ? "#ffffff" : `rgb(${med[0]},${med[1]},${med[2]})`);
+  }
+  return out;
+}
+
+export type InkSpan = { l: number; r: number };
+
+/**
+ * Where the printed text of each block really starts and ends (page units).
+ * Scanned pages carry an OCR text layer whose widths can be far off (JSTOR
+ * scans come out about half as wide as the print), so the translation would
+ * leave English showing beside it. Walks outwards from the block through the
+ * ink until a clear gap (a column gutter) or the next block.
+ */
+export function inkSpans(canvas: HTMLCanvasElement, blocks: { id: string; r: [number, number, number, number]; fs: number }[], pxPerUnit: number): Map<string, InkSpan> {
+  const out = new Map<string, InkSpan>();
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = W && H ? canvas.getContext("2d", { willReadFrequently: true }) : null;
+  if (!ctx) return out;
+  const img = ctx.getImageData(0, 0, W, H).data;
+  const k = pxPerUnit;
+  for (const b of blocks) {
+    const y0 = Math.max(0, Math.round(b.r[1] * k));
+    const y1 = Math.min(H - 1, Math.round(b.r[3] * k));
+    const overlaps = (o: (typeof blocks)[number]) => o !== b && o.r[1] < b.r[3] && o.r[3] > b.r[1];
+    const gapMax = Math.max(4, b.fs * k * 1.1);
+    const inkAt = (x: number) => {
+      for (let y = y0; y <= y1; y += 2) {
+        const i = (y * W + x) * 4;
+        if (img[i + 3] > 0 && img[i] + img[i + 1] + img[i + 2] < 420) return true;
+      }
+      return false;
+    };
+    const walk = (start: number, step: 1 | -1, limit: number) => {
+      let last = start;
+      let gap = 0;
+      for (let x = start; step > 0 ? x <= limit : x >= limit; x += step) {
+        if (inkAt(x)) {
+          last = x;
+          gap = 0;
+        } else if (++gap > gapMax) break;
+      }
+      return last;
+    };
+    const r0 = Math.round(b.r[0] * k);
+    const r2 = Math.round(b.r[2] * k);
+    let right = W - 1;
+    let left = 0;
+    for (const o of blocks) {
+      if (!overlaps(o)) continue;
+      if (o.r[0] * k > r2 - 1) right = Math.min(right, Math.floor(o.r[0] * k) - 2);
+      if (o.r[2] * k < r0 + 1) left = Math.max(left, Math.ceil(o.r[2] * k) + 2);
+    }
+    const r = walk(r2, 1, right);
+    const l = walk(r0, -1, left);
+    if (r - r2 > 2 || r0 - l > 2) out.set(b.id, { l: (l - 1) / k, r: (r + 2) / k });
   }
   return out;
 }

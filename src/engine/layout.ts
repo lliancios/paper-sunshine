@@ -46,6 +46,7 @@ interface WBlock {
   centered: boolean;
   gi: number; // global index in document order
   localId: string;
+  tbl: boolean; // inside a table (below a "Table n" caption)
 }
 
 const TERMINAL = /[.?!。？！]["”’)\]]?$/;
@@ -54,8 +55,11 @@ const CAPTION_RE = /^(fig\.?|figure|table|tab\.|exhibit|chart|appendix|panel)\s*
 const BOILERPLATE =
   /(This content downloaded from|All use subject to|about\.jstor\.org\/terms|JSTOR is a not-for-profit|Your use of the JSTOR archive|Accessibility support|collaborating with JSTOR|Stable URL|Linked references are available|Terms and Conditions of Use|Published by:|sci-hub|Downloaded from|For personal use only|Copyright ©|All rights reserved|Terms of Use)/i;
 
+const TABLE_CAPTION_RE = /^(table|tab\.)\s*[\dA-Z]/i;
+const BULLET_RE = /^[•●▪■◦‣]/;
+
 /** Bumped when parsing changes; papers parsed by an older engine can be re-parsed. */
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3;
 const LETTER = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ぀-ヿ一-鿿가-힯]/g;
 
 function mode(values: [number, number][]): number {
@@ -181,6 +185,7 @@ function newBlock(line: Line, p: number): WBlock {
     centered: false,
     gi: -1,
     localId: "",
+    tbl: false,
   };
 }
 
@@ -231,14 +236,60 @@ function isBreak(b: WBlock, line: Line, bodyFs: number): boolean {
   return false;
 }
 
-function buildBlocks(lines: Line[], p: number, bodyFs: number): WBlock[] {
+/**
+ * Lines of a table: below a "Table n" caption, in the caption's column (or the
+ * full width for a centred caption), until body text or a large gap. Journals
+ * set tables smaller or in another font than the body; a table set exactly like
+ * the body is left to the normal rules.
+ */
+function tableLines(lines: Line[], page: RawPage, ctx: Ctx): Set<Line> {
+  const out = new Set<Line>();
+  const W = page.w;
+  const sorted = [...lines].sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+  for (const cap of sorted) {
+    if (!TABLE_CAPTION_RE.test(cap.text) || cap.text.length > 200) continue;
+    const cc = (cap.x0 + cap.x1) / 2;
+    const [L, R] = Math.abs(cc - W / 2) < 0.1 * W ? [0, W] : cc < W / 2 ? [0, W / 2] : [W / 2, W];
+    let lastY = cap.y1;
+    for (const l of sorted) {
+      if (l === cap || l.y0 <= cap.y0) continue;
+      const lc = (l.x0 + l.x1) / 2;
+      if (lc < L || lc > R) continue;
+      if (l.y0 - lastY > 4 * ctx.bodyFs) break;
+      if (CAPTION_RE.test(l.text)) break;
+      if (Math.abs(l.fs - ctx.bodyFs) <= 0.03 * ctx.bodyFs && l.font === ctx.bodyFont) break;
+      out.add(l);
+      lastY = Math.max(lastY, l.y1);
+    }
+  }
+  return out;
+}
+
+const NUMERIC_RE = /^[\s\d.,%()\-–−±*<>=]*\d[\s\d.,%()\-–−±*<>=a-c]*$/;
+
+/** Table lines that sit on the same baseline as a number: each is its own data row. */
+function dataRows(tbl: Set<Line>): Set<Line> {
+  const out = new Set<Line>();
+  const list = [...tbl];
+  for (const l of list) {
+    if (NUMERIC_RE.test(l.text)) continue;
+    const row = list.some((o) => o !== l && Math.abs(o.base - l.base) <= 0.3 * l.fs && (o.x1 <= l.x0 || o.x0 >= l.x1) && NUMERIC_RE.test(o.text));
+    if (row) out.add(l);
+  }
+  return out;
+}
+
+function buildBlocks(lines: Line[], p: number, bodyFs: number, tbl: Set<Line>): WBlock[] {
   const blocks: WBlock[] = [];
+  const rows = dataRows(tbl);
   for (const line of lines) {
     let best: WBlock | null = null;
     let bestPitch = Infinity;
+    const inTable = tbl.has(line);
     const start = Math.max(0, blocks.length - 16);
     for (let i = start; i < blocks.length; i++) {
       const b = blocks[i];
+      if (b.tbl !== inTable) continue;
       const last = b.lines[b.lines.length - 1];
       // Loose on purpose: OCR text layers jitter by a point between lines; titles even more.
       const big = line.fs >= bodyFs * 1.15 && b.fs >= bodyFs * 1.15;
@@ -250,13 +301,23 @@ function buildBlocks(lines: Line[], p: number, bodyFs: number): WBlock[] {
       const ov = Math.min(line.x1, b.x1) - Math.max(line.x0, b.x0);
       if (ov < 0.25 * Math.min(line.x1 - line.x0, b.x1 - b.x0)) continue;
       if (line.x0 < b.x0 - 3 * b.fs) continue;
+      if (inTable) {
+        // One cell = same font and size, tight leading, same left edge (or a hanging indent); a bullet starts a new item.
+        if (line.font !== last.font || Math.abs(line.fs - b.fs) > 0.06 * b.fs || pitch > 1.5 * b.fs) continue;
+        if (line.x0 < b.x0 - 0.6 * b.fs || line.x0 > b.x0 + 2.5 * b.fs || BULLET_RE.test(line.text) || rows.has(line)) continue;
+      }
       if (pitch < bestPitch) {
         best = b;
         bestPitch = pitch;
       }
     }
-    if (best && !isBreak(best, line, bodyFs)) addLine(best, line);
-    else blocks.push(newBlock(line, p));
+    // Paragraph heuristics (short first line = heading, ...) misfire on cells; the strict table rules above suffice.
+    if (best && (inTable || !isBreak(best, line, bodyFs))) addLine(best, line);
+    else {
+      const b = newBlock(line, p);
+      b.tbl = inTable;
+      blocks.push(b);
+    }
   }
   for (const b of blocks) {
     b.fs = mode(b.lines.map((l) => [l.fs, l.text.length]));
@@ -318,6 +379,8 @@ function classify(b: WBlock, page: RawPage, ctx: Ctx): BlockKind {
   if (CAPTION_RE.test(text)) return "caption";
   const words = wordCount(text);
   const terminal = TERMINAL.test(text);
+  // Table cells: short ones are labels, anything sentence-like is translated in full.
+  if (b.tbl) return words <= 5 && !terminal ? "label" : "para";
   const big = b.fs >= ctx.bodyFs * 1.12;
   const fontDiff = b.font !== ctx.bodyFont;
   // centred relative to the column the block lives in
@@ -347,6 +410,26 @@ function wordCount(text: string): number {
 // ------------------------------------------------------ reading order ----
 
 function orderBlocks(blocks: WBlock[], W: number): WBlock[] {
+  const out = orderColumns(
+    blocks.filter((b) => !b.tbl),
+    W,
+  );
+  // Table cells read row by row, right after their caption.
+  const cells = blocks.filter((b) => b.tbl).sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+  const caps = out.filter((b) => TABLE_CAPTION_RE.test(b.text.trim()));
+  const groups = new Map<WBlock | null, WBlock[]>();
+  for (const c of cells) {
+    const cap = caps.filter((k) => k.y0 <= c.y0).sort((a, b) => b.y0 - a.y0)[0] ?? null;
+    groups.set(cap, [...(groups.get(cap) ?? []), c]);
+  }
+  for (const [cap, list] of groups) {
+    const at = cap ? out.indexOf(cap) + 1 : out.length;
+    out.splice(at, 0, ...list);
+  }
+  return out;
+}
+
+function orderColumns(blocks: WBlock[], W: number): WBlock[] {
   const sorted = [...blocks].sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
   const out: WBlock[] = [];
   let group: WBlock[] = [];
@@ -380,7 +463,7 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
   const ctx: Ctx = { bodyFs, bodyFont };
 
   const pageBlocks: WBlock[][] = pageLines.map((lines, i) => {
-    const blocks = buildBlocks(lines, i, bodyFs);
+    const blocks = buildBlocks(lines, i, bodyFs, tableLines(lines, pages[i], ctx));
     for (const b of blocks) b.kind = classify(b, pages[i], ctx);
     return orderBlocks(blocks, pages[i].w);
   });
@@ -407,6 +490,11 @@ export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extra
   const isFoot = (b: WBlock) => b.fs <= bodyFs * 0.95 && b.y0 > 0.6 * pages[b.p].h;
   for (const b of docBlocks) {
     if (b.kind === "skip") continue;
+    if (b.tbl) {
+      // Each cell stands alone and leaves the body paragraphs around the table untouched.
+      flows.push([b]);
+      continue;
+    }
     if (b.kind === "para") {
       const startsLower = /^[a-z(\[]/.test(b.text.trim());
       let target: WBlock[] | null = null;

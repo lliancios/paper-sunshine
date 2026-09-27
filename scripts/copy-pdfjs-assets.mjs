@@ -1,4 +1,5 @@
-// Copies the pdf.js worker, CMaps and standard fonts into /public so the
+// Copies the pdf.js worker, CMaps, standard fonts, image decoders (wasm: JBIG2,
+// CCITT and JPEG 2000 scans, e.g. JSTOR) and ICC profiles into /public so the
 // browser can load them from our own origin (works offline and on iPad).
 import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -16,7 +17,7 @@ const out = join(process.cwd(), "public", "pdfjs");
 mkdirSync(out, { recursive: true });
 const worker = join(root, "legacy", "build", "pdf.worker.min.mjs");
 if (existsSync(worker)) cpSync(worker, join(out, "pdf.worker.min.mjs"));
-for (const dir of ["cmaps", "standard_fonts"]) {
+for (const dir of ["cmaps", "standard_fonts", "wasm", "iccs"]) {
   const src = join(root, dir);
   if (existsSync(src)) cpSync(src, join(out, dir), { recursive: true });
 }

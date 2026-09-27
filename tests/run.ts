@@ -8,6 +8,7 @@ import { rectsForRange } from "../src/engine/geometry";
 import { lineOf } from "../src/engine/lines";
 import { buildOutline } from "../src/engine/outline";
 import { makeFixture } from "./make-fixture";
+import { cleanTranslation, isUntranslatedEcho, stripEcho } from "../src/lib/cleanTranslation";
 import type { DocModel } from "../src/engine/types";
 
 let failures = 0;
@@ -34,6 +35,25 @@ function sentencesTest() {
   check("splits normal boundaries", r[1] === "Second, it is related (c.f. Edwards & Rothbard, 2000).", r);
   check("handles quotes, ? and !", r.includes('"Quoted."') && r.includes("Next one?") && r.includes("Yes!"), r);
   check("splits CJK", r.includes("恢復很重要。") && r.includes("下一句。"), r);
+}
+
+function cleanTest() {
+  console.log("cleanTranslation");
+  const zh = "繁體中文（台灣）";
+  const src = "In addition, we draw on the study interviews with managers to develop guidelines for averting the problems identified and note examples of effective implementation (see Table 4).";
+  const echo = `${src} 此外，我們藉由本研究對經理人的訪談，發展出用以避免所識別問題的指導原則（參見 Table 4）。`;
+  check("strips an echoed English sentence", cleanTranslation(src, echo, zh) === "此外，我們藉由本研究對經理人的訪談，發展出用以避免所識別問題的指導原則（參見 Table 4）。", cleanTranslation(src, echo, zh));
+  const near = src.replace("study interviews", "interviews").replace("(see Table 4).", "(Table 4)") + " 此外，我們藉由訪談發展指導原則。";
+  check("strips a slightly different echo", cleanTranslation(src, near, zh) === "此外，我們藉由訪談發展指導原則。", cleanTranslation(src, near, zh));
+  check("keeps the English（中文） glossary format", cleanTranslation("Motive uncertainty", "Motive uncertainty（動機不確定性）", zh) === "Motive uncertainty（動機不確定性）");
+  check("strips an echoed label", cleanTranslation("Motive uncertainty", "Motive uncertainty 動機不確定性", zh) === "動機不確定性");
+  check("takes the translated field of id/EN/ZH output", cleanTranslation("Health care", "Health care\t醫療保健", zh) === "醫療保健");
+  check("dedupes a repeated caption", cleanTranslation("TABLE 4", "TABLE 4 TABLE 4", zh) === "TABLE 4");
+  check("leaves a normal translation alone", cleanTranslation(src, "此外，我們也藉由訪談。", zh) === "此外，我們也藉由訪談。");
+  check("leaves a translation that starts with a name alone", cleanTranslation("Bhattacharya and Sen (2003) argue that identification matters.", "Bhattacharya 與 Sen（2003）主張認同很重要。", zh).startsWith("Bhattacharya"));
+  const cut = stripEcho("Motive uncertainty", "Motive uncertainty 動機不確定性");
+  check("reports how much was cut", cut.cut === "Motive uncertainty ".length && cut.t === "動機不確定性", cut);
+  check("flags an untranslated echo", isUntranslatedEcho(src, src, zh) && !isUntranslatedEcho("H1", "H1", zh) && !isUntranslatedEcho(src, "此外", zh));
 }
 
 async function fixtureTest() {
@@ -81,6 +101,15 @@ async function fixtureTest() {
   let orphan = 0;
   for (const pg of m.pages) for (const b of pg.blocks) for (const sid of b.sids) if (m.sentences[sid]?.b !== b.id) orphan++;
   check("block.sids consistent", orphan === 0, orphan);
+  // table page: every cell is its own unit, read row by row after the caption
+  const idx = (pre: string) => m.order.findIndex((id) => m.sentences[id].text.startsWith(pre));
+  check("table: header cell is its own unit", texts.includes("Insights from the Literature"), texts.filter((t) => t.includes("Insights")));
+  check("table: title not merged with headers", texts.includes("Implementation Issues and Related Guidelines"));
+  check("table: spanning subheader is its own unit", texts.includes("Implementation Issues: In Both B2B and B2C Contexts"));
+  check("table: cell text starts its own sentence", idx("Customers may attribute a supplier") >= 0, texts.find((t) => t.includes("Customers may attribute")));
+  check("table: bullet item is its own sentence", idx("•When American Express calls") >= 0, texts.find((t) => t.includes("American Express")));
+  check("table: row label spans two lines", texts.includes("Contact frequency and timing"), texts.filter((t) => t.includes("Contact frequency")));
+  check("table: cells follow the caption", idx("TABLE 1") >= 0 && idx("Motive uncertainty") > idx("TABLE 1") && idx("Contact frequency") > idx("Customers may attribute"));
   const size = JSON.stringify(m).length;
   const firstSid = m.order[0];
   check("sentence ids are page.n", /^\d+\.\d+$/.test(firstSid), firstSid);
@@ -106,6 +135,9 @@ const REAL: Record<string, (m: DocModel) => void> = {
     const toc = buildOutline(m).map((o) => m.sentences[o.sid].text);
     check("pps outline: real sections", ["Research Approach", "PPS Versus RPS", "Literature Review", "Implementing PPS", "Conclusion"].every((h) => toc.includes(h)), toc);
     check("pps outline: no table rows or keywords", !toc.some((t) => /^(Job title|Function|Characteristic|Mid-Atlantic|Keywords|Supplier Level|B2B|Defining)/.test(t)), toc);
+    check("pps Table 4: cell not merged with the headers", all.some((t) => t.startsWith("Customers may attribute a supplier’s initiation")), all.find((t) => t.includes("Customers may attribute")));
+    check("pps Table 4: bullets are separate items", all.some((t) => t.startsWith("•When American Express")) && all.some((t) => t === "Have customer service or research and development rather than sales function contact customers"));
+    check("pps Table 1: one sentence per data row", all.includes("Health care") && all.includes("Nonprofit"), all.filter((t) => t.includes("Health care")));
   },
   "cc.pdf": (m) => {
     check("cc: printed page offset 75 (JSTOR cover page)", m.info.pageOffset === 75, m.info.pageOffset);
@@ -161,6 +193,7 @@ async function extraFixtures() {
 
 async function main() {
   sentencesTest();
+  cleanTest();
   await fixtureTest();
   await extraFixtures();
   if (failures) {

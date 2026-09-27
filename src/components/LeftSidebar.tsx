@@ -91,25 +91,22 @@ export function LeftSidebar({ paperId, onCollapse }: { paperId?: string; onColla
             <button
               type="button"
               onClick={() => setReader({ relatedOpen: true, savedOpen: false })}
-              className="w-full rounded-2xl border-2 border-ink/80 p-3.5 text-left transition-colors hover:bg-soft"
+              className="w-full rounded-xl border border-line px-3 py-2.5 text-left transition-colors hover:bg-soft"
             >
               {top ? (
                 <>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300">
-                      匹配度 {top.score}%
+                  <div className="mb-1 flex items-center gap-1.5 text-[11px] text-ink-faint">
+                    <span className="rounded border border-violet-200 bg-violet-50 px-1 font-medium text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300">{top.score}%</span>
+                    首選推薦
+                    <span className="ml-auto flex items-center">
+                      還有 {Math.max(0, (related?.forYou.length ?? 1) - 1)} 篇 <ChevronRight size={12} />
                     </span>
-                    <span className="h-2 w-2 rounded-full bg-accent" />
                   </div>
-                  <div className="text-xs text-ink-faint">首選推薦</div>
-                  <div className="line-clamp-2 text-sm font-semibold">{top.title}</div>
-                  <div className="mt-1 line-clamp-2 text-xs text-ink-soft">{top.reason}</div>
-                  <div className="mt-2 flex items-center text-xs text-ink-soft">
-                    還有 {Math.max(0, (related?.forYou.length ?? 1) - 1)} 篇 <ChevronRight size={14} />
-                  </div>
+                  <div className="line-clamp-2 text-[13px] font-medium leading-snug">{top.title}</div>
+                  <div className="mt-0.5 line-clamp-1 text-[11px] text-ink-soft">{top.reason}</div>
                 </>
               ) : (
-                <div className="text-sm text-ink-soft">
+                <div className="text-[13px] text-ink-soft">
                   {job?.stage === "related" ? "正在尋找相關論文…" : related?.note ?? "打開面板以搜尋相關論文"}
                 </div>
               )}

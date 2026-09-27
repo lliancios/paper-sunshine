@@ -1,5 +1,5 @@
 import { chromium } from "playwright";
-const BASE = process.env.BASE || "http://localhost:3200";
+const BASE = process.env.BASE || "http://localhost:3100";
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
 page.on("pageerror", (e) => console.log("PAGEERROR", String(e).slice(0, 600)));
@@ -27,5 +27,5 @@ for (const t of ["測驗", "高亮", "解釋", "評論", "筆記", "引用卡片
   await page.waitForTimeout(700);
   console.log("tab", t, "crashed?", await page.locator("text=This page couldn’t load").count());
 }
-await page.screenshot({ path: "${process.env.SHOTS ?? "/tmp"}/13-chat.png" });
+await page.screenshot({ path: `${process.env.SHOTS ?? "/tmp"}/13-chat.png` });
 await browser.close();

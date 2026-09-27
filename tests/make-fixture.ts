@@ -141,6 +141,9 @@ export async function makeFixture(path: string) {
       cy -= LEAD + 6;
     }
   }
+  // ---- last page: a three-column table set in a smaller sans font (like JM's Table 4)
+  pg = newPage(pageNo + 1);
+  await drawTable(doc, pg);
   const bytes = await doc.save();
   mkdirSync(path.replace(/\/[^/]+$/, ""), { recursive: true });
   writeFileSync(path, bytes);
@@ -166,6 +169,47 @@ function drawFigure(pg: PDFPage, font: PDFFont) {
   for (const line of wrap(cap, font, 9, W - 2 * MARGIN, 0)) {
     pg.drawText(line, { x: MARGIN, y: yy, size: 9, font });
     yy -= 11;
+  }
+}
+
+async function drawTable(doc: PDFDocument, pg: PDFPage) {
+  const reg = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const center = (t: string, y: number, size: number, font: PDFFont) => pg.drawText(t, { x: (W - font.widthOfTextAtSize(t, size)) / 2, y, size, font });
+  let y = H - 90;
+  center("TABLE 1", y, 10, bold);
+  y -= 12;
+  center("Implementation Issues and Related Guidelines", y, 10, bold);
+  y -= 18;
+  const cols = [MARGIN, 150, 357];
+  const widths = [85, 190, 200];
+  ["Potential Issue", "Insights from the Literature", "Related Guidelines and Examples"].forEach((t, i) => pg.drawText(t, { x: cols[i] + (i ? 30 : 0), y, size: 9, font: bold }));
+  y -= 16;
+  center("Implementation Issues: In Both B2B and B2C Contexts", y, 9, bold);
+  y -= 16;
+  const cell = (text: string, col: number, top: number, hang = 0) => {
+    const lines = wrap(text, reg, 9, widths[col] - hang, 0);
+    lines.forEach((l, i) => pg.drawText(l, { x: cols[col] + (i ? hang : 0), y: top - i * 10, size: 9, font: reg }));
+    return top - lines.length * 10;
+  };
+  const rows: [string, string, string[]][] = [
+    [
+      "Motive uncertainty",
+      "Customers may attribute a supplier's initiation of contact to the supplier's short-sighted self-interest or to altruism (see DeCarlo 2005).",
+      ["Train customer-facing employees to provide proactive service, not proactive selling", "•When American Express calls to alert customers on specific transactions, it makes it a point to avoid cross-selling."],
+    ],
+    [
+      "Contact frequency and timing",
+      "High contact frequency can infringe on customers' time and convenience; in turn, this can lead to annoyance (see Folger and Konovsky 1989).",
+      ["Do not contact all customers with the same frequency", "•Amazon.com customers can select the types of issues for which they would like to be contacted."],
+    ],
+  ];
+  for (const [issue, insight, guides] of rows) {
+    const a = cell(issue, 0, y);
+    const b = cell(insight, 1, y);
+    let c = y;
+    guides.forEach((g, i) => (c = cell(g, 2, c, i ? 9 : 0)));
+    y = Math.min(a, b, c) - 14;
   }
 }
 

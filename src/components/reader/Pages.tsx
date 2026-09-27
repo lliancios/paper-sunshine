@@ -7,7 +7,7 @@
 import { ChevronLeft, ChevronRight, MapPin, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Side } from "@/engine/types";
-import { acquireRender, blit, samplePaperColors } from "@/lib/pdf";
+import { type InkSpan, acquireRender, blit, inkSpans, samplePaperColors } from "@/lib/pdf";
 import { setFocus } from "@/lib/pipeline";
 import { useReader } from "@/store/reader";
 import { cx } from "../ui";
@@ -172,6 +172,7 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [near, setNear] = useState(false);
   const [colors, setColors] = useState<Map<string, string>>(() => new Map());
+  const [ink, setInk] = useState<Map<string, InkSpan>>(() => new Map());
 
   useEffect(() => {
     const el = boxRef.current;
@@ -196,6 +197,9 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
       if (side === "tgt") {
         const blocks = page.blocks.filter((b) => b.kind !== "skip").map((b) => ({ id: b.id, r: b.r }));
         setColors(samplePaperColors(off, blocks, off.width / page.w));
+        // Not labels: those sit inside figures, next to lines the translation must not paint over.
+        const text = page.blocks.filter((b) => (b.kind === "para" && b.nl >= 2) || b.kind === "heading" || b.kind === "caption").map((b) => ({ id: b.id, r: b.r, fs: b.fs }));
+        setInk(inkSpans(off, text, off.width / page.w));
       }
       r.release();
     });
@@ -208,7 +212,7 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
   return (
     <div ref={boxRef} data-row={index} className="relative shrink-0 bg-white shadow-sm ring-1 ring-black/5" style={{ width: w, height: h }}>
       <canvas ref={canvasRef} className="absolute inset-0" style={{ width: w, height: h }} />
-      {near && (side === "src" ? <SourceLayer index={index} scale={scale} /> : <TranslatedLayer index={index} scale={scale} colors={colors} />)}
+      {near && (side === "src" ? <SourceLayer index={index} scale={scale} /> : <TranslatedLayer index={index} scale={scale} colors={colors} ink={ink} />)}
       {near && <InkLayer index={index} side={side} />}
       {near && <FocusTag index={index} scale={scale} side={side} />}
     </div>

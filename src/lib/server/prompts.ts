@@ -19,6 +19,7 @@ export function translatePrompt(r: TranslateRequest) {
     `3. t：該句的${r.targetLanguage}翻譯。術語一律依 glossary 的譯法。只有帶 first_terms 的句子，譯文中對應術語使用「English（中文）」格式；其他句子只用中文術語（縮寫如 PPS、H1 可保留）。`,
     "4. kind=heading 或 label 的譯文要簡短，保持標題或圖中標籤的性質；kind=caption 保留 Figure/Table 編號。",
     "5. 句子來自 PDF 抽取，可能有斷字、多餘空白或上下標殘留，請依語意翻譯，不要照抄亂碼。",
+    `5b. t 只放${r.targetLanguage}譯文：不要先重抄英文原句，也不要英文與譯文並列（first_terms 的「English（中文）」術語格式除外）。`,
     r.autoHighlight
       ? `6. c：只對 kind=para 的句子判斷是否為論文關鍵句，分類為 ${cats}；非關鍵句或非 para 句填 "none"。請精選，一頁通常 2 到 6 句，只標真正關鍵、讀者會想劃線的句子。`
       : '6. c 一律填 "none"。',
@@ -100,6 +101,7 @@ export function translateLinesPrompt(r: TranslateLinesRequest) {
     `4. 譯文使用${r.targetLanguage}。術語一律依 glossary；只有帶 first_terms 的句子，對應術語使用「English（中文）」格式，其他句子只用中文術語（縮寫如 PPS、H1 可保留）。`,
     "5. kind=heading 或 label 的譯文要簡短；kind=caption 保留 Figure/Table 編號。",
     "6. 句子來自 PDF 抽取，可能有斷字、多餘空白或上下標殘留，請依語意翻譯。",
+    `7. 每一行只放${r.targetLanguage}譯文：不要先重抄英文原句，也不要英文與譯文並列（first_terms 的「English（中文）」術語格式除外）。表格儲存格、條列項目與短標籤同樣要翻譯。`,
   ].join("\n");
   const system = `${fillLang(r.rolePrompt, r.targetLanguage)}\n\n${rules}`;
   const user = JSON.stringify({ paper_title: r.paperTitle ?? "", glossary: r.glossary, blocks: r.blocks });

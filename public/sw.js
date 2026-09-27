@@ -34,10 +34,13 @@ self.addEventListener("install", (event) => {
           /* offline during install: cache fills on next visit */
         }
       }
-      try {
-        await statics.add("/pdfjs/pdf.worker.min.mjs");
-      } catch {
-        /* ignore */
+      // Worker plus the image decoders scanned PDFs need, so they open offline too.
+      for (const f of ["/pdfjs/pdf.worker.min.mjs", "/pdfjs/wasm/jbig2.wasm", "/pdfjs/wasm/openjpeg.wasm", "/pdfjs/wasm/qcms_bg.wasm"]) {
+        try {
+          await statics.add(f);
+        } catch {
+          /* ignore */
+        }
       }
       await self.skipWaiting();
     })(),

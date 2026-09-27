@@ -10,6 +10,7 @@ import { ENGINE_VERSION } from "@/engine/layout";
 import type { Block, DocModel } from "@/engine/types";
 import { ApiError, aiJson, aiStream, friendlyError, postJson, streamLines } from "./api";
 import type { Guide, Overview, RelatedItem, TranslateBlock, WorkMeta } from "./apiTypes";
+import { cleanTranslation, isUntranslatedEcho, stripEcho } from "./cleanTranslation";
 import { type AppSettings, type JobStage, type Paper, type TransRec, db, resetTranslations, uid } from "./db";
 import { openPdf } from "./pdf";
 import { getSettings, models } from "./settings";
@@ -244,7 +245,9 @@ async function process(paperId: string) {
   // Re-parse papers from an older engine when no annotation depends on their sentence ids.
   // With sync on, another device may hold annotations we have not pulled yet, so leave it to the user.
   if (model && (model.ev ?? 1) < ENGINE_VERSION && !syncReady()) {
-    const used = (await db.highlights.where("paperId").equals(paperId).count()) + (await db.explanations.where("paperId").equals(paperId).count());
+    const used =
+      (await db.highlights.where("paperId").equals(paperId).filter((h) => !h.deleted).count()) +
+      (await db.explanations.where("paperId").equals(paperId).filter((e) => !e.deleted).count());
     if (!used) {
       await resetTranslations(paperId, { model: true });
       model = undefined;
@@ -557,8 +560,12 @@ async function translateBatch(
   settings: AppSettings,
   title: string,
   modelSpec: string,
+  only?: Set<string>,
 ) {
-  const blocks = pages.flatMap((p) => pageBlocks(model, p, first));
+  const blocks = pages
+    .flatMap((p) => pageBlocks(model, p, first))
+    .map((b) => (only ? { ...b, sentences: b.sentences.filter((s) => only.has(s.id)) } : b))
+    .filter((b) => b.sentences.length);
   const want = new Set(blocks.flatMap((b) => b.sentences.map((s) => s.id)));
   const text = blocks
     .flatMap((b) => b.sentences.map((s) => s.text))
@@ -566,9 +573,10 @@ async function translateBatch(
     .toLowerCase();
   const glossary = overview.glossary.filter((g) => g.en.split(/,\s*|\s*\(|\)/).some((v) => v.trim().length >= 2 && text.includes(v.trim().toLowerCase())));
   const got = new Map<string, string>();
+  let received = 0;
   let mock = false;
 
-  const run = async (bl: TranslateBlock[]) => {
+  const run = async (bl: TranslateBlock[], lastTry: boolean) => {
     let buffer: TransRec[] = [];
     let last = Date.now();
     const flush = async () => {
@@ -582,8 +590,13 @@ async function translateBatch(
       (line) => {
         const m = line.match(/^\s*(\d+\.\d+)\s*(?:\t|\s\|\s|｜|:\s)\s*(.+?)\s*$/);
         if (!m || !want.has(m[1])) return;
-        got.set(m[1], m[2]);
-        buffer.push({ paperId, sid: m[1], page: model.sentences[m[1]].p, t: m[2], c: null });
+        received++;
+        const src = model.sentences[m[1]].text;
+        const t = cleanTranslation(src, m[2], settings.targetLanguage);
+        // An English copy instead of a translation counts as missing and is asked again.
+        if (!t || (!lastTry && isUntranslatedEcho(src, t, settings.targetLanguage))) return;
+        got.set(m[1], t);
+        buffer.push({ paperId, sid: m[1], page: model.sentences[m[1]].p, t, c: null });
         if (Date.now() - last > 400) {
           last = Date.now();
           void flush();
@@ -594,20 +607,88 @@ async function translateBatch(
     await flush();
   };
 
-  await run(blocks);
-  // One follow-up for anything the model skipped.
-  const missing = blocks.map((b) => ({ ...b, sentences: b.sentences.filter((s) => !got.has(s.id)) })).filter((b) => b.sentences.length);
-  if (missing.length && got.size) {
+  if (!blocks.length) return;
+  await run(blocks, false);
+  if (!received) throw new ApiError("模型沒有回傳任何譯文", 502);
+  // Up to two follow-ups for anything the model skipped or only copied in English;
+  // follow-ups accept English (references, names and formulas stay English on purpose).
+  for (let round = 0; round < 2; round++) {
+    const missing = blocks.map((b) => ({ ...b, sentences: b.sentences.filter((s) => !got.has(s.id)) })).filter((b) => b.sentences.length);
+    if (!missing.length) break;
     try {
-      await run(missing);
+      await run(missing, true);
     } catch (e) {
       if (e instanceof ApiError && e.status === 429) throw e;
+      break;
     }
-  } else if (!got.size) {
-    throw new ApiError("模型沒有回傳任何譯文", 502);
   }
   if (mock) await db.translations.where("paperId").equals(paperId).filter((t) => want.has(t.sid)).modify({ mock: true });
   for (const page of pages) await db.pageStatus.put({ paperId, page, done: true, at: Date.now() });
+}
+
+/** Sentences on a page that still have no translation (the page shows them in grey). */
+export function untranslatedOn(model: DocModel, page: number, trans: Map<string, { t: string }>): string[] {
+  return model.pages[page].blocks.filter((b) => b.kind !== "skip").flatMap((b) => b.sids.filter((sid) => !trans.get(sid)?.t));
+}
+
+/** Translates only the sentences a page is still missing ("補翻這頁"). */
+export async function translateMissing(paperId: string, page: number): Promise<number> {
+  const [paper, model, overview, settings] = await Promise.all([db.papers.get(paperId), db.models.get(paperId), db.overviews.get(paperId), getSettings()]);
+  if (!paper || !model) return 0;
+  const trans = new Map((await db.translations.where("paperId").equals(paperId).toArray()).map((t) => [t.sid, t]));
+  const only = new Set(untranslatedOn(model.model, page, trans));
+  if (!only.size) return 0;
+  const ov: Overview = overview?.data ?? { titleZh: "", summary3: [], keywords: [], glossary: [] };
+  await translateBatch(paperId, model.model, [page], firstTerms(model.model, ov.glossary), ov, settings, paper.title, models(settings).translate, only);
+  const after = new Set((await db.translations.where("paperId").equals(paperId).toArray()).filter((t) => t.t).map((t) => t.sid));
+  return [...only].filter((sid) => after.has(sid)).length;
+}
+
+/**
+ * Older runs stored some translations with the English sentence echoed in
+ * front ("English. 中文"). Strips the echo and shifts highlights and
+ * explanations drawn on those translations so they keep their words.
+ */
+export async function repairTranslations(paperId: string, model: DocModel): Promise<number> {
+  const recs = await db.translations.where("paperId").equals(paperId).toArray();
+  const cuts = new Map<string, { cut: number; len: number }>();
+  const fixed: TransRec[] = [];
+  for (const r of recs) {
+    const src = model.sentences[r.sid]?.text;
+    if (!src || !r.t) continue;
+    const { t, cut } = stripEcho(src, r.t);
+    if (!cut) continue;
+    cuts.set(r.sid, { cut, len: t.length });
+    fixed.push({ ...r, t });
+  }
+  if (!fixed.length) return 0;
+  await db.translations.bulkPut(fixed);
+  const shift = (ranges: { sid: string; start: number; end: number }[]) => {
+    let changed = false;
+    const out = ranges.flatMap((r) => {
+      const k = cuts.get(r.sid);
+      if (!k) return [r];
+      changed = true;
+      const start = Math.max(0, r.start - k.cut);
+      const end = Math.min(k.len, r.end - k.cut);
+      return end > start ? [{ ...r, start, end }] : [];
+    });
+    // Drawn only on the removed English: keep it on the whole translated sentence.
+    if (changed && !out.length && ranges[0]) out.push({ ...ranges[0], start: 0, end: cuts.get(ranges[0].sid)?.len ?? ranges[0].end });
+    return changed ? out : null;
+  };
+  const now = Date.now();
+  for (const h of await db.highlights.where("paperId").equals(paperId).toArray()) {
+    if (h.side !== "tgt") continue;
+    const ranges = shift(h.ranges);
+    if (ranges) await db.highlights.update(h.id, { ranges, updatedAt: now });
+  }
+  for (const e of await db.explanations.where("paperId").equals(paperId).toArray()) {
+    if (e.side !== "tgt" || !e.ranges) continue;
+    const ranges = shift(e.ranges);
+    if (ranges) await db.explanations.update(e.id, { ranges, updatedAt: now });
+  }
+  return fixed.length;
 }
 
 // ------------------------------------------------------------ one-pager ----

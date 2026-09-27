@@ -9,6 +9,7 @@ AI paper reader (Next.js 16 App Router, React 19, TypeScript, Tailwind 4, pdf.js
 - `npm test`: engine tests (generates a two-column fixture PDF with pdf-lib, runs pdf.js in Node). Run after any change in `src/engine/`.
 - Next.js 16 differs from older versions: read `node_modules/next/dist/docs/` before using unfamiliar APIs. `middleware` is `proxy`; request APIs are async.
 - pdf.js 6: close documents with `doc.loadingTask.destroy()` (no `doc.destroy()`); legacy build is used for Safari/iPadOS.
+- pdf.js 6 decodes JBIG2/CCITT/JPEG 2000 scans (JSTOR) with wasm: `getDocument` needs `wasmUrl` (`/pdfjs/wasm/`, copied by `scripts/copy-pdfjs-assets.mjs`) or scanned pages render blank.
 
 ## The one invariant: everything is keyed by sentence ID
 - `src/engine/layout.ts` builds `DocModel`: sentences with IDs `"<page>.<n>"`, each with `pieces` (runs inside pdf.js text items) where `sentence.text.slice(piece.s, piece.e)` is exactly the text rendered in the source text layer.
@@ -17,6 +18,8 @@ AI paper reader (Next.js 16 App Router, React 19, TypeScript, Tailwind 4, pdf.js
 - Every selectable text node sits in an element with `data-sid` and `data-start`, inside a container with `data-side` and `data-page` (`src/lib/selection.ts` relies on this).
 - The translate prompt's output format (one item per sentence id, no merging/splitting) is locked in `src/lib/server/prompts.ts`; the user's role prompt only controls style. Do not let user settings change the format.
 - Changing sentence segmentation changes IDs for newly parsed papers only; existing papers keep their stored model. Bump `DocModel.v` if the shape changes.
+- Tables: lines below a "Table n" caption (until body text) form cells (`tableLines` in `layout.ts`): same font, tight leading, same left edge; bullets and numeric data rows start new units; cells never flow into body paragraphs. Bump `ENGINE_VERSION` when parsing changes (papers without annotations re-parse; others get 「用新版解析重跑」).
+- Translations pass through `src/lib/cleanTranslation.ts` (strips an echoed English sentence, rejects English copies on the first try). Scanned pages: the translated layer widens blocks to the printed ink (`inkSpans` in `pdf.ts`) because OCR layers can be narrower than the scan.
 - Exception: handwriting (`ink` table, `InkLayer.tsx`) is stored in PDF page units at scale 1 (the same space as piece rects), never screen pixels. Drawn precisely on its `side`, mirrored faintly on the other.
 - AI answers cite sentences as `[[sid]]` (one-pager, chat); `CitedMarkdown` in `OnePager.tsx` turns them into page chips that scroll to and flash the sentences.
 
@@ -25,7 +28,7 @@ AI paper reader (Next.js 16 App Router, React 19, TypeScript, Tailwind 4, pdf.js
 - `src/lib/db.ts`: Dexie tables. User-authored rows have `updatedAt` and `deleted` tombstones. Use soft delete for highlights/explanations/chats; `deletePaper` keeps a tombstone paper row.
 - Sync (`src/lib/sync.ts`, schema in `supabase/schema.sql`): Dexie hooks queue changes in `outbox`; push goes through the `ps_push` RPC (last writer wins on `updated_at`); pull reads `ps_records` by server `rev`. Rows in `ROWS` sync one by one; translations + auto highlights + page status travel as one `gen` bundle per paper (union merge; `resetTranslations` bumps an epoch to replace instead). PDFs and models live in the `ps-files` bucket and download on demand (`ensurePaperLocal`). Writes applied from the cloud run inside `applyRemote` so hooks don't echo them. A new synced table must be added to `ROWS` (and have a simple primary key plus an updated timestamp).
 - Zotero (`src/lib/zotero.ts`, `src/app/api/zotero/route.ts`): the browser keeps the user's Zotero key in localStorage and sends it per request; the route only proxies an allowlist of Web API paths (`ZOTERO_API_BASE` overrides the host for tests). Batch imports set `papers.triage`: guide + one-pager first, translation starts when the paper is opened.
-- `src/app/api/*`: server routes. Keys live only in env vars (`GEMINI_API_KEY`, `OPENALEX_API_KEY`); every route calls `requireAuth` (header `x-ps-pass` vs `APP_PASSCODE`). Without a Gemini key, routes return mock data (`src/lib/server/mock.ts`; `MOCK_STYLE=zh` gives Chinese-shaped filler for layout testing).
+- `src/app/api/*`: server routes. Keys live only in env vars (`GEMINI_API_KEY`, `OPENALEX_API_KEY`); every route calls `requireAuth` (header `x-ps-pass` vs `APP_PASSCODE`). Without a Gemini key, routes return mock data (`src/lib/server/mock.ts`; `MOCK_STYLE=zh` gives Chinese-shaped filler for layout testing, `MOCK_STYLE=echo` repeats the English first like a misbehaving model).
 - Gemini: plain REST in `src/lib/server/gemini.ts`, Gemini 3.x rules (`thinkingLevel`, no temperature). Default model `gemini-3.8-flash`.
 - Routes: library `/`, reader `/read?id=<paperId>` (one static page shell so the installed app opens any paper offline; `/read/[id]` only redirects). Link with `readHref()` from `src/lib/routes.ts`.
 - PWA: `src/app/manifest.ts`, `public/sw.js` (caches the app shell and `/_next/static`; never `/api`). Cache names follow `APP_VERSION`, so bump the version to roll the cache.

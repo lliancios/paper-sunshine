@@ -1,6 +1,6 @@
 # Handoff: continuing Paper Sunshine in Claude Code
 
-Last updated 2026-09-27 (v0.6.1). Read `CLAUDE.md` first; it holds the invariants.
+Last updated 2026-09-27 (v0.6.2). Read `CLAUDE.md` first; it holds the invariants.
 
 ## Where things stand
 
@@ -17,13 +17,15 @@ Deployed on Vercel from `main` (every push deploys; bumping `package.json` versi
 | v0.5.1 | Resume reading position across devices (`papers.readPage`), step through summary citations |
 | v0.6.0 | Zotero: import collections via Web API (`/api/zotero` proxy, key in localStorage only), triage mode (summary first, translate on open), conclusions in library rows, save highlights + summary back as a child note |
 | v0.6.1 | "New version" banner works without Vercel system env vars (build timestamp); production sync wired to Supabase |
+| v0.6.2 | Scanned PDFs render (pdf.js wasm decoders), echoed English stripped from translations (and repaired in stored ones), table cells parsed as separate units (ENGINE_VERSION 3), translated layer covers the real ink on scans, 「補翻」 for missing sentences |
 
 ## Open items, in priority order
 
 1. **Sync is configured in production** (Supabase project `paper-sunshine`, ref `sjrgmvccubhtcakgscbc`, region Asia-Pacific; schema verified; "Confirm email" off; `SUPABASE_URL` and `SUPABASE_ANON_KEY` set in Vercel for Production). Still confirm on the owner's devices: create the account on the computer (設定 → 跨裝置同步 → 建立帳號), then sign in with the same account on iPad and iPhone. If the owner reports an error, ask for the text from 設定 → 跨裝置同步 → 同步診斷. Likely suspects: env vars not redeployed, `schema.sql` not fully run, "Confirm email" still on, iPad running an old cached build (tap the "有新版本" banner or relaunch).
-2. Ideas the owner was offered (not started): reverse links (click a sentence, light up the one-pager lines citing it), read-aloud of the translation.
-3. Writing studio (v0.7.0): thesis project with chapters, insert citations from the library and highlights, APA bibliography, `.docx` export that keeps layout, AI assistant panel. Dexie tables `projects` and `docs` already exist and are in the sync `ROWS` list.
-4. Zotero: only tested against `tests/e2e/fake-zotero.mjs` (api.zotero.org is not reachable from the dev sandbox); confirm with a real key. Then citation cards (click an in-text citation to see the reference); phrase-level cross-language alignment.
+2. Translation quality (owner's main complaint on 2026-09-27): v0.6.2 fixed the mechanical causes (echoed English, merged table cells, blank scans). If they still see bad translations, get a screenshot plus the paper, and check which model runs translation (設定 → 模型與連線); cheaper models echo and skip more. Tables without a "Table n" caption above them, or set in the body font, still use the paragraph rules.
+3. Ideas the owner was offered (not started): reverse links (click a sentence, light up the one-pager lines citing it), read-aloud of the translation.
+4. Writing studio (v0.7.0): thesis project with chapters, insert citations from the library and highlights, APA bibliography, `.docx` export that keeps layout, AI assistant panel. Dexie tables `projects` and `docs` already exist and are in the sync `ROWS` list.
+5. Zotero: only tested against `tests/e2e/fake-zotero.mjs` (api.zotero.org is not reachable from the dev sandbox); confirm with a real key. Then citation cards (click an in-text citation to see the reference); phrase-level cross-language alignment.
 
 ## How to work
 

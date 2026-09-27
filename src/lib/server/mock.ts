@@ -76,9 +76,15 @@ export function mockGuide(r: GuideRequest): Guide {
   return { ...mockOverview(r.title), highlights };
 }
 
+/** MOCK_STYLE=echo imitates a model that repeats the English before its translation. */
+function mockLine(text: string): string {
+  if (process.env.MOCK_STYLE === "echo") return `${text} ${fakeZh(text)}`;
+  return process.env.MOCK_STYLE === "zh" ? fakeZh(text) : `〔示範譯文〕${text}`;
+}
+
 export function mockLines(r: TranslateLinesRequest): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
-  const lines = r.blocks.flatMap((b) => b.sentences.map((s) => `${s.id}\t${process.env.MOCK_STYLE === "zh" ? fakeZh(s.text) : `〔示範譯文〕${s.text}`}\n`));
+  const lines = r.blocks.flatMap((b) => b.sentences.map((s) => `${s.id}\t${mockLine(s.text)}\n`));
   let i = 0;
   return new ReadableStream({
     async pull(c) {

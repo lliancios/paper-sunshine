@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { aiJson, aiStream, friendlyError } from "@/lib/api";
 import type { TranslateResponse } from "@/lib/apiTypes";
 import { printedPage, quoteWithCitation } from "@/lib/citation";
+import { cleanTranslation } from "@/lib/cleanTranslation";
 import { db, uid } from "@/lib/db";
 import { HIGHLIGHT_COLORS } from "@/lib/defaults";
 import { renderRegion, thumbnail } from "@/lib/pdf";
@@ -324,7 +325,16 @@ export function TranslatePopover() {
         model: models(data.settings).translate,
       });
       await db.translations.bulkPut(
-        res.items.map((i) => ({ paperId: data.paperId, sid: i.id, page: data.model.sentences[i.id]?.p ?? 0, t: i.t, c: data.trans.get(i.id)?.c ?? null, mock: res.mock })),
+        res.items
+          .filter((i) => data.model.sentences[i.id])
+          .map((i) => ({
+            paperId: data.paperId,
+            sid: i.id,
+            page: data.model.sentences[i.id].p,
+            t: cleanTranslation(data.model.sentences[i.id].text, i.t, data.settings.targetLanguage),
+            c: data.trans.get(i.id)?.c ?? null,
+            mock: res.mock,
+          })),
       );
     } catch (e) {
       toast(`翻譯失敗：${friendlyError(e)}`, "error");

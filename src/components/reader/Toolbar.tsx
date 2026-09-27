@@ -437,8 +437,10 @@ function InfoPanel() {
               title="用新版版面解析重新切句；這篇的劃線與解釋會對不上，會一併清除"
               onClick={async () => {
                 if (!confirm("用新版版面解析重新處理這篇？譯文、自動高亮會重跑，這篇的劃線與解釋會被清除。")) return;
-                await db.highlights.where("paperId").equals(p.id).delete();
-                await db.explanations.where("paperId").equals(p.id).delete();
+                // Soft delete so other devices drop them too (sync).
+                const now = Date.now();
+                await db.highlights.where("paperId").equals(p.id).modify({ deleted: true, updatedAt: now });
+                await db.explanations.where("paperId").equals(p.id).modify({ deleted: true, updatedAt: now });
                 await resetTranslations(p.id, { model: true });
                 enqueue(p.id, true);
               }}

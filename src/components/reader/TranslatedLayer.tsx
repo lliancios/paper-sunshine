@@ -3,15 +3,28 @@
 // the paper colour and refilled with live, selectable translated text. Every
 // sentence keeps its sentence id, so highlights, hover sync, explanations and
 // auto highlights work exactly like on the source side.
-import { Loader2 } from "lucide-react";
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { Languages, Loader2 } from "lucide-react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Block } from "@/engine/types";
+import { friendlyError } from "@/lib/api";
 import type { Highlight } from "@/lib/db";
+import type { InkSpan } from "@/lib/pdf";
+import { translateMissing, untranslatedOn } from "@/lib/pipeline";
 import { useReader } from "@/store/reader";
-import { cx } from "../ui";
+import { cx, toast } from "../ui";
 import { hlColor, rgba, useReaderData } from "./ReaderData";
 
-export const TranslatedLayer = memo(function TranslatedLayer({ index, scale, colors }: { index: number; scale: number; colors: Map<string, string> }) {
+export const TranslatedLayer = memo(function TranslatedLayer({
+  index,
+  scale,
+  colors,
+  ink,
+}: {
+  index: number;
+  scale: number;
+  colors: Map<string, string>;
+  ink: Map<string, InkSpan>; // where the printed text really is (scans with an ill-fitting OCR layer)
+}) {
   const { model, trans, pagesDone, job } = useReaderData();
   const set = useReader((s) => s.set);
   const last = useRef<string | null>(null);
@@ -41,7 +54,7 @@ export const TranslatedLayer = memo(function TranslatedLayer({ index, scale, col
       }}
     >
       {blocks.map((b) => (
-        <TBlock key={b.id} block={b} scale={scale} bg={colors.get(b.id) ?? "#ffffff"} />
+        <TBlock key={b.id} block={b} scale={scale} bg={colors.get(b.id) ?? "#ffffff"} ink={ink.get(b.id)} />
       ))}
       {pending && (
         <div className="absolute right-2 top-2 z-[4] inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[11px] text-ink-soft shadow-sm">
@@ -49,17 +62,51 @@ export const TranslatedLayer = memo(function TranslatedLayer({ index, scale, col
           {job?.stage === "error" ? "此頁翻譯失敗，可在論文資訊中重試" : "翻譯中…"}
         </div>
       )}
+      {done && <MissingPill index={index} />}
     </div>
   );
 });
 
-function TBlock({ block, scale, bg }: { block: Block; scale: number; bg: string }) {
+/** A finished page that still has untranslated (grey) sentences offers to translate just those. */
+function MissingPill({ index }: { index: number }) {
+  const { model, trans, paperId } = useReaderData();
+  const [busy, setBusy] = useState(false);
+  const missing = useMemo(() => untranslatedOn(model, index, trans).length, [model, index, trans]);
+  if (!missing) return null;
+  return (
+    <button
+      type="button"
+      data-popover
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const n = await translateMissing(paperId, index);
+          toast(n ? `補翻了 ${n} 句` : "模型這次也沒有翻出來，可以稍後再試");
+        } catch (e) {
+          toast(`補翻失敗：${friendlyError(e)}`, "error");
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="absolute right-2 top-2 z-[4] inline-flex items-center gap-1 rounded-full border border-line bg-white/95 px-2 py-0.5 text-[11px] text-ink-soft shadow-sm hover:text-ink"
+      title="這頁有句子還沒翻到（灰色斜體），只補翻這些句子"
+    >
+      {busy ? <Loader2 size={11} className="animate-spin" /> : <Languages size={11} />}
+      {busy ? "補翻中…" : `${missing} 句沒翻到 · 補翻`}
+    </button>
+  );
+}
+
+function TBlock({ block, scale, bg, ink }: { block: Block; scale: number; bg: string; ink?: InkSpan }) {
   const { trans } = useReaderData();
   const ref = useRef<HTMLDivElement>(null);
   const pad = block.fs * 0.2;
-  const left = (block.r[0] - 1) * scale;
+  const x0 = Math.min(block.r[0], ink?.l ?? Infinity);
+  const x1 = Math.max(block.r[2], ink?.r ?? 0);
+  const left = (x0 - 1) * scale;
   const top = (block.r[1] - pad) * scale;
-  const width = (block.r[2] - block.r[0] + 2) * scale;
+  const width = (x1 - x0 + 2) * scale;
   const height = (block.r[3] - block.r[1] + 2 * pad) * scale;
   const lineHeight = block.nl > 1 ? Math.min(1.65, Math.max(1.18, block.lh / block.fs)) : 1.15;
   const maxFs = block.fs * scale * (block.kind === "heading" ? 1 : 0.98);
