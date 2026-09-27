@@ -22,6 +22,7 @@ PDF=tests/fixtures/two-column.pdf SHOTS=/tmp node tests/e2e/reader.mjs
 | `panels.mjs` | every sidebar tab and the chat open without crashing |
 | `offline.mjs` | service worker: reader opens offline (never visited), library offline, legacy `/read/<id>` |
 | `error-boundary.mjs` | a corrupt record shows an in-panel error card instead of a blank page |
+| `zotero.mjs` | Zotero connect, collection tree, bulk import in triage mode (no translation until opened), conclusions in the library, save note back and update it; run with `node tests/e2e/fake-zotero.mjs` and `ZOTERO_API_BASE=http://localhost:54322` on the server |
 | `sync-two-devices.mjs` | two browser profiles against `fake-supabase.mjs`: first sign-in uploads the library, second device downloads PDF/model/annotations/ink, deletes propagate both ways |
 
 For the sync test, start the fake backend and point the app at it:

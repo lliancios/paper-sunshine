@@ -22,6 +22,7 @@ import { db, resetTranslations } from "@/lib/db";
 import { COLOR_SCHEMES } from "@/lib/defaults";
 import { enqueue, lookupMeta, refreshRelated, regenerateHighlights, unpause } from "@/lib/pipeline";
 import { friendlyError } from "@/lib/api";
+import { saveNoteToZotero } from "@/lib/zotero";
 import { ENGINE_VERSION } from "@/engine/layout";
 import { saveSettings } from "@/lib/settings";
 import { useReader } from "@/store/reader";
@@ -500,6 +501,21 @@ function ExportMenu({ onClose }: { onClose: () => void }) {
   const notes = async () => (await db.notes.get(p.id))?.text ?? "";
   return (
     <div className="absolute right-0 top-10 w-60 whitespace-normal overflow-hidden rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]">
+      {p.zotero && (
+        <MenuBtn
+          onClick={async () => {
+            onClose();
+            try {
+              const r = await saveNoteToZotero(p.id);
+              toast(r === "created" ? "已在 Zotero 這篇底下建立筆記（劃線＋一頁速覽）" : "已更新 Zotero 裡的筆記");
+            } catch (e) {
+              toast(e instanceof Error ? e.message : String(e), "error");
+            }
+          }}
+        >
+          存回 Zotero（劃線＋速覽，子筆記）
+        </MenuBtn>
+      )}
       <MenuBtn
         onClick={() => {
           download(`${safeFileName(p.title)}.ris`, toRis(p, { highlights: data.highlights, model: data.model, translations }), "application/x-research-info-systems");

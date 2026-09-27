@@ -33,6 +33,8 @@ export interface Paper {
   updatedAt: number;
   lastOpenedAt?: number;
   readPage?: number; // page index being read last time (synced, so another device resumes there)
+  triage?: boolean; // batch import: guide + one-page summary first, translate when first opened
+  zotero?: { key: string; user: string; noteKey?: string; noteVersion?: number };
   rating: number;
   note: string;
   tags: string[];

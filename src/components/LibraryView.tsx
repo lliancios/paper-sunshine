@@ -2,6 +2,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   AlertCircle,
+  Lightbulb,
   ChevronDown,
   Clock,
   ExternalLink,
@@ -36,6 +37,8 @@ import { readHref } from "@/lib/routes";
 import { useSync } from "@/lib/sync";
 import { InstallAppButton } from "./InstallApp";
 import { SyncBadge, SyncHint } from "./SyncPanel";
+import { ZoteroDialog } from "./ZoteroDialog";
+import { conclusionOf } from "@/lib/onepagerText";
 
 const PAGE_SIZE = 20;
 
@@ -52,7 +55,8 @@ export function LibraryView() {
   const [view, setView] = useState<"list" | "cards">(() => (typeof window !== "undefined" && window.innerWidth < 768 ? "cards" : "list"));
   const [sort, setSort] = useState<"added" | "recent">("added");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<{ minRating: number; tag: string; needsPdf: boolean }>({ minRating: 0, tag: "", needsPdf: false });
+  const [filter, setFilter] = useState<{ minRating: number; tag: string; needsPdf: boolean; unread: boolean }>({ minRating: 0, tag: "", needsPdf: false, unread: false });
+  const [zoteroOpen, setZoteroOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [doiOpen, setDoiOpen] = useState(false);
@@ -80,9 +84,14 @@ export function LibraryView() {
     if (filter.minRating) l = l.filter((p) => p.rating >= filter.minRating);
     if (filter.tag) l = l.filter((p) => p.tags.includes(filter.tag));
     if (filter.needsPdf) l = l.filter((p) => !p.hasFile);
+    if (filter.unread) l = l.filter((p) => !p.lastOpenedAt);
     return [...l].sort((a, b) => (sort === "recent" ? (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0) : b.addedAt - a.addedAt));
   }, [papers, folderId, query, filter, sort]);
   const allTags = useMemo(() => [...new Set((papers ?? []).flatMap((p) => p.tags))].sort(), [papers]);
+  const unreadCount = useMemo(() => (papers ?? []).filter((p) => !p.lastOpenedAt && (!folderId || p.folderId === folderId)).length, [papers, folderId]);
+  // One-line conclusions from the one-page summaries: skim a hoarded library.
+  const onepagers = useLiveQuery(() => db.onepagers.toArray(), []);
+  conclusions = useMemo(() => new Map((onepagers ?? []).map((o) => [o.paperId, conclusionOf(o.md)])), [onepagers]);
   const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
   const shown = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -198,6 +207,16 @@ export function LibraryView() {
               )}
             </h1>
             <span className="text-sm text-ink-faint">{list.length} 篇</span>
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                onClick={() => (setFilter((f) => ({ ...f, unread: !f.unread })), setPage(1))}
+                className={cx("rounded-full border px-2.5 py-0.5 text-xs", filter.unread ? "border-transparent bg-accent text-white" : "border-line text-ink-soft hover:bg-muted")}
+                title="還沒打開過的論文"
+              >
+                未讀 {unreadCount}
+              </button>
+            )}
             <span title="文獻存在這台裝置；登入同步帳號後會在各裝置之間同步" className="text-ink-faint">
               <Info size={17} />
             </span>
@@ -256,6 +275,7 @@ export function LibraryView() {
                 {menuOpen && (
                   <div className="absolute right-0 top-11 z-30 w-48 overflow-hidden rounded-xl border border-line bg-bg py-1 text-sm shadow-[var(--shadow)]" onMouseLeave={() => setMenuOpen(false)}>
                     <MenuItem onClick={() => (setMenuOpen(false), fileRef.current?.click())}>上傳 PDF</MenuItem>
+                    <MenuItem onClick={() => (setMenuOpen(false), setZoteroOpen(true))}>從 Zotero 匯入</MenuItem>
                     <MenuItem onClick={() => (setMenuOpen(false), setDoiOpen(true))}>以 DOI 加入</MenuItem>
                     <MenuItem onClick={() => (setMenuOpen(false), setNewFolder(""))}>新增資料夾</MenuItem>
                   </div>
@@ -319,6 +339,7 @@ export function LibraryView() {
         </div>
       )}
       <DoiDialog open={doiOpen} onClose={() => setDoiOpen(false)} />
+      <ZoteroDialog open={zoteroOpen} onClose={() => setZoteroOpen(false)} folderId={folderId} />
     </div>
   );
 }
@@ -447,6 +468,9 @@ function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: (
   );
 }
 
+/** One-line conclusions per paper id, refreshed by LibraryView on each render. */
+let conclusions = new Map<string, string>();
+
 /** Paper ids whose PDF is stored on this device (others may be waiting in the cloud). */
 let localIds: Set<string> | null = null;
 function useLocalFiles() {
@@ -510,6 +534,12 @@ function Row({
     >
       <td className="max-w-0 px-3 py-3">
         <div className="truncate font-medium">{p.title}</div>
+        {conclusions.get(p.id) && (
+          <div className="mt-0.5 line-clamp-2 whitespace-normal text-xs text-ink-soft" title="一頁速覽的一句話結論">
+            <Lightbulb size={11} className="mr-1 inline text-accent-strong" />
+            {conclusions.get(p.id)}
+          </div>
+        )}
         <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-faint">
           {statusOf(p, job)}
           <span className="truncate">{authorLine(p)}</span>
@@ -574,6 +604,12 @@ function Card({ p, job, update }: { p: Paper; job?: JobRec; update: (id: string,
         <Stars value={p.rating} onChange={(v) => update(p.id, { rating: v })} size={13} />
       </div>
       <div className="line-clamp-3 font-semibold leading-snug">{p.title}</div>
+      {conclusions.get(p.id) && (
+        <div className="mt-1.5 line-clamp-3 text-xs text-ink-soft">
+          <Lightbulb size={11} className="mr-1 inline text-accent-strong" />
+          {conclusions.get(p.id)}
+        </div>
+      )}
       {p.titleZh && <div className="mt-1 line-clamp-2 text-sm text-ink-soft">{p.titleZh}</div>}
       <div className="mt-2 truncate text-xs text-ink-faint">{authorLine(p)}</div>
       {!!p.tags.length && (

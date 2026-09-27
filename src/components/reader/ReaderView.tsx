@@ -30,8 +30,12 @@ export function ReaderView({ paperId }: { paperId: string }) {
   const job = useLiveQuery(() => db.jobs.get(paperId), [paperId]);
 
   useEffect(() => {
-    void db.papers.update(paperId, { lastOpenedAt: Date.now() });
-    enqueue(paperId, true);
+    void (async () => {
+      const p = await db.papers.get(paperId);
+      // Opening a batch-imported paper starts its full translation.
+      await db.papers.update(paperId, { lastOpenedAt: Date.now(), ...(p?.triage ? { triage: false, updatedAt: Date.now() } : {}) });
+      enqueue(paperId, true);
+    })();
     useReader.getState().set({
       selection: null,
       explain: null,

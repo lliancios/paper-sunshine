@@ -22,11 +22,13 @@ export function setFocus(paperId: string, page: number) {
 
 const queue: string[] = [];
 const running = new Set<string>();
+const rerun = new Set<string>(); // opened while a (triage) job was running: run again afterwards
 let looping = false;
 
 export function enqueue(paperId: string, priority = false) {
   if (priority) {
     if (!running.has(paperId)) void runOne(paperId);
+    else rerun.add(paperId);
     return;
   }
   if (!queue.includes(paperId) && !running.has(paperId)) queue.push(paperId);
@@ -93,6 +95,7 @@ async function runOne(paperId: string) {
     }
   } finally {
     running.delete(paperId);
+    if (rerun.delete(paperId)) void runOne(paperId);
   }
 }
 
@@ -106,7 +109,11 @@ async function sha1(buf: ArrayBuffer): Promise<string> {
 }
 
 /** Imports a PDF, merging into a DOI placeholder when one exists. Returns the paper id. */
-export async function importPdf(file: Blob, fileName: string, opts: { meta?: WorkMeta; folderId?: string | null } = {}): Promise<string> {
+export async function importPdf(
+  file: Blob,
+  fileName: string,
+  opts: { meta?: WorkMeta; folderId?: string | null; extra?: Partial<Paper>; lookup?: boolean } = {},
+): Promise<string> {
   const buf = await file.arrayBuffer();
   const hash = await sha1(buf);
   const dup = await db.papers.where("hash").equals(hash).first();
@@ -144,7 +151,9 @@ export async function importPdf(file: Blob, fileName: string, opts: { meta?: Wor
     detectedPageOffset: model.info.pageOffset,
     hash,
     updatedAt: now,
-    metaDone: opts.meta ? true : base.metaDone,
+    // lookup: the metadata came from elsewhere (e.g. Zotero) but OpenAlex should still add its ids.
+    metaDone: opts.meta && !opts.lookup ? true : base.metaDone,
+    ...opts.extra,
   };
   await db.transaction("rw", [db.papers, db.files, db.models], async () => {
     await db.papers.put(paper);
@@ -258,8 +267,11 @@ async function process(paperId: string) {
     paper = (await db.papers.get(paperId))!;
   }
 
+  // Batch-imported ("triage") papers get the reading guide, highlights and the
+  // one-page summary first; the full translation waits until the paper is opened.
+  const triage = !!paper.triage;
   try {
-    if (settings.autoTranslate) {
+    if (settings.autoTranslate || triage) {
       let overview = (await db.overviews.get(paperId))?.data;
       const hlCount = await db.autohl.where("paperId").equals(paperId).count();
       // Legacy per-page categories (v0.1) cover only the pages translated back then, so they don't count.
@@ -267,10 +279,10 @@ async function process(paperId: string) {
         await setJob(paperId, "overview");
         overview = await withQuota(paperId, () => runGuide(paperId, model!, paper!.title, settings, m.translate));
       }
-      await translateAll(paperId, model, overview, settings, paper.title, m.translate);
+      if (!triage) await translateAll(paperId, model, overview, settings, paper.title, m.translate);
     }
 
-    if (paper.metaDone && !(await db.related.get(paperId))) {
+    if (!triage && paper.metaDone && !(await db.related.get(paperId))) {
       await setJob(paperId, "related");
       try {
         await refreshRelated(paperId, "forYou");
@@ -279,10 +291,11 @@ async function process(paperId: string) {
       }
     }
 
-    if (settings.autoTranslate && settings.autoOnepager && !(await db.onepagers.get(paperId))) {
+    if ((triage || (settings.autoTranslate && settings.autoOnepager)) && !(await db.onepagers.get(paperId))) {
       await setJob(paperId, "onepager");
       try {
-        await withQuota(paperId, () => generateOnePager(paperId, () => {}));
+        // Triage summaries use the cheaper translation model: there may be dozens of them.
+        await withQuota(paperId, () => generateOnePager(paperId, () => {}, triage ? m.translate : undefined));
       } catch (e) {
         if (e instanceof QuotaPause) throw e;
       }
