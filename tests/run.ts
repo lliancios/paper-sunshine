@@ -6,6 +6,7 @@ import { extractDocModel, type PdfDoc } from "../src/engine/extract";
 import { splitSentences } from "../src/engine/sentences";
 import { rectsForRange } from "../src/engine/geometry";
 import { lineOf } from "../src/engine/lines";
+import { buildOutline } from "../src/engine/outline";
 import { makeFixture } from "./make-fixture";
 import type { DocModel } from "../src/engine/types";
 
@@ -102,6 +103,9 @@ const REAL: Record<string, (m: DocModel) => void> = {
     check("pps: 'Thus, a key question' is left column line 22", at("Thus, a key question of interest") === "L22", at("Thus, a key question of interest"));
     check("pps: 'We argue that the locus' is right column line 3", at("We argue that the locus") === "R3", at("We argue that the locus"));
     check("pps: 'For example, suppliers such as IBM' is left column line 8", at("For example, suppliers such as IBM") === "L8", at("For example, suppliers such as IBM"));
+    const toc = buildOutline(m).map((o) => m.sentences[o.sid].text);
+    check("pps outline: real sections", ["Research Approach", "PPS Versus RPS", "Literature Review", "Implementing PPS", "Conclusion"].every((h) => toc.includes(h)), toc);
+    check("pps outline: no table rows or keywords", !toc.some((t) => /^(Job title|Function|Characteristic|Mid-Atlantic|Keywords|Supplier Level|B2B|Defining)/.test(t)), toc);
   },
   "cc.pdf": (m) => {
     check("cc: printed page offset 75 (JSTOR cover page)", m.info.pageOffset === 75, m.info.pageOffset);
@@ -111,6 +115,9 @@ const REAL: Record<string, (m: DocModel) => void> = {
   },
   "sonnentag.pdf": (m) => {
     check("sonnentag: printed page offset 518", m.info.pageOffset === 518, m.info.pageOffset);
+    const toc = buildOutline(m).map((o) => m.sentences[o.sid].text);
+    check("sonnentag outline: starts at the first section, no author block", toc[0] === "Recovery Concept" && !toc.some((t) => /Sonnentag|Braunschweig/.test(t)), toc.slice(0, 3));
+    check("sonnentag outline: has Discussion and References", toc.includes("Discussion") && toc.includes("References"), toc);
   },
 };
 

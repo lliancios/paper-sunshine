@@ -1,5 +1,7 @@
 # Paper Sunshine: notes for coding agents
 
+Status and next steps: `docs/HANDOFF.md`. Browser checks: `tests/e2e/README.md`.
+
 AI paper reader (Next.js 16 App Router, React 19, TypeScript, Tailwind 4, pdf.js 6, Dexie). The owner iterates with Claude Code and Codex; keep changes small and verified.
 
 ## Commands

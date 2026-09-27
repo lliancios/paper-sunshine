@@ -8,6 +8,7 @@ import {
   MessageSquare,
   NotebookPen,
   PanelBottom,
+  ListTree,
   PanelRight,
   ScrollText,
   Send,
@@ -30,11 +31,13 @@ import { WorkCard } from "../WorkPanels";
 import { Badge, Button, IconButton, Markdown, Segmented, copyText, cx, relTime, toast } from "../ui";
 import { fullText, overviewText, softDelete } from "./actions";
 import { CitedMarkdown, OnePagerPanel } from "./OnePager";
+import { OutlinePanel } from "./Outline";
 import { paperLines } from "@/lib/pipeline";
 import { hlColor, scrollToSentence, useReaderData } from "./ReaderData";
 
 const RAIL: { key: RightTab; label: string; icon: React.ReactNode }[] = [
   { key: "onepager", label: "一頁速覽", icon: <ScrollText size={19} /> },
+  { key: "outline", label: "目錄", icon: <ListTree size={19} /> },
   { key: "ai", label: "與 AI 一起", icon: <WandSparkles size={19} /> },
   { key: "quiz", label: "測驗", icon: <Gamepad2 size={19} /> },
   { key: "highlights", label: "高亮", icon: <Highlighter size={19} /> },
@@ -136,6 +139,7 @@ export function RightPanel() {
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         <ErrorBoundary label={label} compact resetKey={tab}>
           {tab === "onepager" && <OnePagerPanel />}
+          {tab === "outline" && <OutlinePanel />}
           {tab === "ai" && <AIPanel />}
           {tab === "quiz" && <QuizPanel />}
           {tab === "highlights" && <HighlightsPanel mode="highlights" />}

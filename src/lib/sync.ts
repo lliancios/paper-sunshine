@@ -689,3 +689,98 @@ export async function syncNow() {
   await pull();
   await push();
 }
+
+// ------------------------------------------------------------ recovery ----
+
+/** Queues every local record and file for upload again (e.g. after fixing the cloud setup). */
+export async function reuploadAll() {
+  if (!client || !session) throw new Error("請先登入同步帳號");
+  await enqueueEverything();
+  status({ pending: await db.outbox.count() });
+  await push();
+}
+
+/** Reads everything in the cloud again from the start (e.g. a device that shows an empty library). */
+export async function redownloadAll(onProgress?: (d: number, t: number) => void) {
+  if (!client || !session) throw new Error("請先登入同步帳號");
+  await db.syncState.put({ key: `cursor:${uidOf()}`, value: 0 });
+  await pull();
+  await prefetchPapers(10_000, onProgress);
+}
+
+export interface Check {
+  label: string;
+  ok: boolean | null; // null = information only
+  detail: string;
+  fix?: string;
+}
+
+/** Step-by-step health check of the sync setup, in plain language. */
+export async function diagnose(): Promise<Check[]> {
+  const out: Check[] = [];
+  const cfg = readCfg();
+  if (!cfg) {
+    out.push({
+      label: "雲端設定",
+      ok: false,
+      detail: "伺服器沒有提供 Supabase 設定。",
+      fix: "到 Vercel → Settings → Environment Variables 確認有 SUPABASE_URL 與 SUPABASE_ANON_KEY，然後 Deployments → 最新一筆 →「⋯」→ Redeploy，再重新整理這個頁面。",
+    });
+    return out;
+  }
+  out.push({ label: "雲端設定", ok: true, detail: new URL(cfg.url).host });
+
+  try {
+    const r = await fetch(`${cfg.url}/auth/v1/health`, { headers: { apikey: cfg.key } });
+    out.push(
+      r.ok
+        ? { label: "連線到 Supabase", ok: true, detail: "正常" }
+        : { label: "連線到 Supabase", ok: false, detail: `回應 ${r.status}`, fix: "SUPABASE_ANON_KEY 可能貼錯（要貼 anon public 或 Publishable key，不是 service_role 或 secret）。改好後 Redeploy。" },
+    );
+  } catch {
+    out.push({ label: "連線到 Supabase", ok: false, detail: "連不上", fix: "檢查網路；或 SUPABASE_URL 貼錯（應該像 https://xxxx.supabase.co）。" });
+    return out;
+  }
+
+  if (!client || !session) {
+    out.push({ label: "登入", ok: false, detail: "這台裝置還沒登入", fix: "在上面輸入 Email 與密碼。第一台裝置按「建立帳號」，其他裝置按「登入」，用同一組帳號。" });
+    return out;
+  }
+  out.push({ label: "登入", ok: true, detail: session.user.email ?? session.user.id });
+
+  const table = await client.from("ps_records").select("id", { count: "exact", head: true });
+  if (table.error) {
+    out.push({ label: "雲端資料表", ok: false, detail: table.error.message, fix: "到 Supabase → SQL Editor 貼上 supabase/schema.sql 全部內容並按 Run。" });
+    return out;
+  }
+  const rpc = await client.rpc("ps_push", { rows: [] });
+  out.push(
+    rpc.error
+      ? { label: "雲端資料表", ok: false, detail: rpc.error.message, fix: "schema.sql 可能只執行了一部分：到 SQL Editor 再完整執行一次（可以重複執行）。" }
+      : { label: "雲端資料表", ok: true, detail: "正常" },
+  );
+  const bucket = await client.storage.from(BUCKET).list(uidOf(), { limit: 1000 });
+  out.push(
+    bucket.error
+      ? { label: "PDF 檔案空間", ok: false, detail: bucket.error.message, fix: "到 SQL Editor 再完整執行一次 schema.sql（會建立 ps-files 檔案空間）。" }
+      : { label: "PDF 檔案空間", ok: true, detail: "正常" },
+  );
+
+  const cloudPapers = await client.from("ps_records").select("id", { count: "exact", head: true }).eq("tbl", "papers").eq("deleted", false);
+  const cloudCount = cloudPapers.count ?? 0;
+  const cloudPdfs = bucket.data?.length ?? 0;
+  const local = await db.papers.filter((p) => !p.deleted).toArray();
+  const localPdfs = (await db.files.toCollection().primaryKeys()).length;
+  const pending = await db.outbox.count();
+  out.push({ label: "雲端內容", ok: null, detail: `${cloudCount} 篇論文，${cloudPdfs} 篇有 PDF` });
+  out.push({ label: "這台裝置", ok: null, detail: `${local.length} 篇論文，${localPdfs} 個 PDF 在本機，待上傳 ${pending} 筆` });
+
+  const phase = useSync.getState();
+  if (phase.phase === "error") out.push({ label: "最近一次同步", ok: false, detail: phase.message });
+  if (local.length > cloudCount)
+    out.push({ label: "建議", ok: false, detail: "這台有些論文還沒上傳到雲端。", fix: "按下方「重新上傳全部」。" });
+  else if (cloudCount > local.length)
+    out.push({ label: "建議", ok: false, detail: "雲端有這台還沒有的論文。", fix: "按下方「從雲端重新下載全部」。" });
+  else out.push({ label: "建議", ok: true, detail: "兩邊數量一致。" });
+  return out;
+}

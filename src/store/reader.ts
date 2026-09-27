@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type { Rect } from "@/engine/types";
 import type { SelectionInfo } from "@/lib/selection";
 
-export type RightTab = "onepager" | "ai" | "quiz" | "highlights" | "explanations" | "comments" | "notes" | "citations";
+export type RightTab = "onepager" | "outline" | "ai" | "quiz" | "highlights" | "explanations" | "comments" | "notes" | "citations";
 export type ViewMode = "both" | "src" | "tgt";
 
 export interface ExplainRequest {

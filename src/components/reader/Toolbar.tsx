@@ -58,7 +58,7 @@ export function Toolbar() {
           <PanelLeftOpen size={18} />
         </IconButton>
       )}
-      <IconButton title="目錄" active={r.outlineOpen} onClick={() => toggle("outlineOpen")}>
+      <IconButton title="目錄" active={r.rightTab === "outline"} onClick={() => r.set({ rightTab: r.rightTab === "outline" ? null : "outline", outlineOpen: false })}>
         <ListTree size={18} />
       </IconButton>
       <IconButton title="論文資訊" active={r.infoOpen} onClick={() => toggle("infoOpen")}>
@@ -172,7 +172,6 @@ export function Toolbar() {
         </div>
       </div>
 
-      {r.outlineOpen && <OutlinePanel />}
       {r.infoOpen && <InfoPanel />}
       {r.searchOpen && <SearchPanel />}
     </div>
@@ -340,28 +339,6 @@ function Floating({ children, className }: { children: React.ReactNode; classNam
     <div className={cx("scroll-thin absolute left-2 whitespace-normal top-14 max-h-[70vh] w-[380px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-2xl border border-line bg-bg p-3 shadow-[var(--shadow)]", className)}>
       {children}
     </div>
-  );
-}
-
-function OutlinePanel() {
-  const data = useReaderData();
-  const heads = data.model.order.filter((sid) => data.model.sentences[sid].kind === "heading");
-  return (
-    <Floating>
-      <div className="mb-2 px-1 text-sm font-semibold">目錄</div>
-      {!heads.length && <div className="px-1 text-sm text-ink-faint">沒有偵測到標題</div>}
-      {heads.map((sid) => {
-        const s = data.model.sentences[sid];
-        const zh = data.trans.get(sid)?.t;
-        return (
-          <button key={sid} type="button" onClick={() => scrollToSentence(data.model, sid)} className="block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted">
-            <span className="text-ink">{zh || s.text}</span>
-            {zh && <span className="ml-2 text-xs text-ink-faint">{s.text}</span>}
-            <span className="float-right text-xs text-ink-faint">{s.p + 1}</span>
-          </button>
-        );
-      })}
-    </Floating>
   );
 }
 

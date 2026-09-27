@@ -35,7 +35,7 @@ import { SavedPanel } from "./WorkPanels";
 import { readHref } from "@/lib/routes";
 import { useSync } from "@/lib/sync";
 import { InstallAppButton } from "./InstallApp";
-import { SyncBadge } from "./SyncPanel";
+import { SyncBadge, SyncHint } from "./SyncPanel";
 
 const PAGE_SIZE = 20;
 
@@ -179,6 +179,7 @@ export function LibraryView() {
       {/* main */}
       <main className="scroll-thin min-w-0 flex-1 overflow-y-auto bg-bg">
         <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+          <SyncHint />
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 md:hidden">
               <SunMark size={28} />
@@ -197,7 +198,7 @@ export function LibraryView() {
               )}
             </h1>
             <span className="text-sm text-ink-faint">{list.length} 篇</span>
-            <span title="文獻會存在這台裝置；v0.2.0 起跨裝置同步" className="text-ink-faint">
+            <span title="文獻存在這台裝置；登入同步帳號後會在各裝置之間同步" className="text-ink-faint">
               <Info size={17} />
             </span>
             <div className="ml-auto flex items-center gap-2">

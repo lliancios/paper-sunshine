@@ -1,7 +1,7 @@
 "use client";
-import { Cloud, CloudOff, Download, ExternalLink, Loader2, LogOut, RefreshCw } from "lucide-react";
+import { CheckCircle2, Cloud, CloudOff, CloudUpload, Download, ExternalLink, Info, Loader2, LogOut, RefreshCw, Stethoscope, XCircle } from "lucide-react";
 import { useState } from "react";
-import { prefetchPapers, signIn, signOut, signUp, syncNow, useSync } from "@/lib/sync";
+import { type Check, diagnose, prefetchPapers, redownloadAll, reuploadAll, signIn, signOut, signUp, syncNow, useSync } from "@/lib/sync";
 import { useApp } from "./AppFrame";
 import { Button, cx, relTime, toast } from "./ui";
 
@@ -77,6 +77,7 @@ export function SyncTab() {
         <a href={GUIDE} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent-strong underline">
           <ExternalLink size={14} /> 看設定步驟
         </a>
+        <Diagnostics />
         {what}
       </div>
     );
@@ -121,6 +122,7 @@ export function SyncTab() {
           </Button>
         </div>
         {s.message && <p className="text-xs text-red-600">{s.message}</p>}
+        <Diagnostics />
         {what}
       </form>
     );
@@ -160,8 +162,107 @@ export function SyncTab() {
           <LogOut size={14} /> 登出
         </Button>
       </div>
+      <Diagnostics />
+      <div className="rounded-xl border border-line p-3">
+        <div className="mb-1 text-sm font-medium">修復工具</div>
+        <p className="mb-2 text-xs text-ink-faint">不會刪除任何資料，重複按也沒關係。</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={!!busy}
+            onClick={() =>
+              void run("up", async () => {
+                await reuploadAll();
+                toast("這台裝置的論文與 PDF 已重新上傳");
+              })
+            }
+          >
+            {busy === "up" ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />} 重新上傳全部
+          </Button>
+          <Button
+            disabled={!!busy}
+            onClick={() =>
+              void run("down", async () => {
+                await redownloadAll((d, t) => setProgress(`${d}/${t}`));
+                setProgress("");
+                toast("已從雲端重新下載");
+              })
+            }
+          >
+            {busy === "down" ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} 從雲端重新下載全部 {busy === "down" ? progress : ""}
+          </Button>
+        </div>
+      </div>
       {what}
       <p className="text-xs text-ink-faint">登出只停止同步，這台裝置上的資料會保留。</p>
     </div>
+  );
+}
+
+/** "同步診斷": checks each step and says how to fix it. */
+function Diagnostics() {
+  const [checks, setChecks] = useState<Check[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      setChecks(await diagnose());
+    } catch (e) {
+      setChecks([{ label: "診斷", ok: false, detail: e instanceof Error ? e.message : String(e) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="rounded-xl border border-line p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-medium">同步診斷</div>
+        <Button className="!px-2.5 !py-1 text-xs" disabled={busy} onClick={() => void run()}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Stethoscope size={13} />} {checks ? "重新檢查" : "開始檢查"}
+        </Button>
+      </div>
+      {!checks && <p className="mt-1 text-xs text-ink-faint">看不到其他裝置的論文時按這裡，逐項檢查哪一步出了問題。</p>}
+      {checks && (
+        <ul className="mt-2 space-y-1.5 text-xs">
+          {checks.map((c, i) => (
+            <li key={i} className="flex gap-2">
+              {c.ok === true ? (
+                <CheckCircle2 size={14} className="mt-px shrink-0 text-emerald-600" />
+              ) : c.ok === false ? (
+                <XCircle size={14} className="mt-px shrink-0 text-red-600" />
+              ) : (
+                <Info size={14} className="mt-px shrink-0 text-ink-faint" />
+              )}
+              <div className="min-w-0">
+                <span className="font-medium">{c.label}</span>
+                <span className="text-ink-soft">：{c.detail}</span>
+                {c.fix && <div className="text-red-700 dark:text-red-300">→ {c.fix}</div>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Library banner: this device is not syncing yet (or sync failed). */
+export function SyncHint() {
+  const s = useSync();
+  const setApp = useApp((a) => a.set);
+  if (!s.configured || (s.phase !== "signedOut" && s.phase !== "error")) return null;
+  const err = s.phase === "error";
+  return (
+    <button
+      type="button"
+      onClick={() => setApp({ settingsOpen: true, settingsTab: "sync" })}
+      className={cx(
+        "mb-4 flex w-full items-center gap-2 rounded-xl border px-4 py-3 text-left text-sm",
+        err ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" : "border-accent/40 bg-accent-soft text-accent-strong",
+      )}
+    >
+      {err ? <CloudOff size={16} /> : <Cloud size={16} />}
+      <span className="flex-1">{err ? `同步出錯：${s.message}（點這裡診斷）` : "登入同步帳號，就能看到電腦、iPad、手機上的所有論文"}</span>
+      <span className="shrink-0 font-medium">{err ? "診斷" : "登入"} →</span>
+    </button>
   );
 }
