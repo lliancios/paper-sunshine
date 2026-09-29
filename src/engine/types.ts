@@ -59,6 +59,7 @@ export interface PageInfo {
   w: number;
   h: number;
   blocks: Block[];
+  inkFit?: boolean; // scanned page: text geometry was stretched to the printed ink (src/lib/inkFit.ts)
 }
 
 export interface DocModel {

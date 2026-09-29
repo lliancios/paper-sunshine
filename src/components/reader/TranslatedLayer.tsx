@@ -5,7 +5,8 @@
 // auto highlights work exactly like on the source side.
 import { Languages, Loader2 } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Block } from "@/engine/types";
+import { layoutBoxes } from "@/engine/boxes";
+import type { Block, Rect } from "@/engine/types";
 import { friendlyError } from "@/lib/api";
 import type { Highlight } from "@/lib/db";
 import type { InkSpan } from "@/lib/pdf";
@@ -32,6 +33,8 @@ export const TranslatedLayer = memo(function TranslatedLayer({
   const done = pagesDone.has(index);
   const blocks = page.blocks.filter((b) => b.kind !== "skip" && (b.sids.length ? b.sids.some((sid) => trans.has(sid)) : done));
   const pending = !done && page.blocks.some((b) => b.kind !== "skip" && b.sids.length);
+  // Boxes for every text block (translated or not yet), so a box never covers a neighbour's text.
+  const boxes = useMemo(() => layoutBoxes(page.blocks.filter((b) => b.kind !== "skip"), ink, page.w, page.h), [page, ink]);
 
   return (
     <div
@@ -54,7 +57,7 @@ export const TranslatedLayer = memo(function TranslatedLayer({
       }}
     >
       {blocks.map((b) => (
-        <TBlock key={b.id} block={b} scale={scale} bg={colors.get(b.id) ?? "#ffffff"} ink={ink.get(b.id)} />
+        <TBlock key={b.id} block={b} scale={scale} bg={colors.get(b.id) ?? "#ffffff"} box={boxes.get(b.id) ?? b.r} />
       ))}
       {pending && (
         <div className="absolute right-2 top-2 z-[4] inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[11px] text-ink-soft shadow-sm">
@@ -98,16 +101,14 @@ function MissingPill({ index }: { index: number }) {
   );
 }
 
-function TBlock({ block, scale, bg, ink }: { block: Block; scale: number; bg: string; ink?: InkSpan }) {
+function TBlock({ block, scale, bg, box }: { block: Block; scale: number; bg: string; box: Rect }) {
   const { trans } = useReaderData();
   const ref = useRef<HTMLDivElement>(null);
   const pad = block.fs * 0.2;
-  const x0 = Math.min(block.r[0], ink?.l ?? Infinity);
-  const x1 = Math.max(block.r[2], ink?.r ?? 0);
-  const left = (x0 - 1) * scale;
-  const top = (block.r[1] - pad) * scale;
-  const width = (x1 - x0 + 2) * scale;
-  const height = (block.r[3] - block.r[1] + 2 * pad) * scale;
+  const left = box[0] * scale;
+  const top = box[1] * scale;
+  const width = (box[2] - box[0]) * scale;
+  const height = (box[3] - box[1]) * scale;
   const lineHeight = block.nl > 1 ? Math.min(1.65, Math.max(1.18, block.lh / block.fs)) : 1.15;
   const maxFs = block.fs * scale * (block.kind === "heading" ? 1 : 0.98);
   const sig = block.sids.map((sid) => trans.get(sid)?.t ?? "").join("|");

@@ -23,6 +23,7 @@ PDF=tests/fixtures/two-column.pdf SHOTS=/tmp node tests/e2e/reader.mjs
 | `offline.mjs` | service worker: reader opens offline (never visited), library offline, legacy `/read/<id>` |
 | `error-boundary.mjs` | a corrupt record shows an in-panel error card instead of a blank page |
 | `zotero.mjs` | Zotero connect, collection tree, bulk import in triage mode (no translation until opened), conclusions in the library, save note back and update it; run with `node tests/e2e/fake-zotero.mjs` and `ZOTERO_API_BASE=http://localhost:54322` on the server |
+| `overlap-all-pages.mjs` | **run before every release.** Opens each paper in `PDFS` and walks every page: translated boxes must not overlap each other, cover kept text (headers, page numbers), leave the page or overflow. `EXPECT_FIT=0` also fails if a born-digital paper gets re-fitted to its scan, `EXPECT_FIT=1` if a scanned one does not |
 | `scan-table-echo.mjs` | scanned JSTOR page is drawn (wasm decoders), table cells are separate units, echoed English is stripped from new and stored translations (highlight offsets kept), 「補翻」 fills a page's missing sentences; run with `MOCK_STYLE=echo` on the server and `SCAN=tests/fixtures/cc.pdf TABLE=tests/fixtures/pps.pdf` (local PDFs) |
 | `sync-two-devices.mjs` | two browser profiles against `fake-supabase.mjs`: first sign-in uploads the library, second device downloads PDF/model/annotations/ink, deletes propagate both ways |
 

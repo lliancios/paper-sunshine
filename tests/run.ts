@@ -9,6 +9,7 @@ import { lineOf } from "../src/engine/lines";
 import { buildOutline } from "../src/engine/outline";
 import { makeFixture } from "./make-fixture";
 import { cleanTranslation, isUntranslatedEcho, stripEcho } from "../src/lib/cleanTranslation";
+import { layoutBoxes, overlappingBoxes } from "../src/engine/boxes";
 import type { DocModel } from "../src/engine/types";
 
 let failures = 0;
@@ -35,6 +36,13 @@ function sentencesTest() {
   check("splits normal boundaries", r[1] === "Second, it is related (c.f. Edwards & Rothbard, 2000).", r);
   check("handles quotes, ? and !", r.includes('"Quoted."') && r.includes("Next one?") && r.includes("Yes!"), r);
   check("splits CJK", r.includes("恢復很重要。") && r.includes("下一句。"), r);
+  const f = "They build long-term relationships with their customers.1 Yet if the business press is right, it works. See section 3.1 The end.";
+  const rf = splitSentences(f).map(([a, b]) => f.slice(a, b));
+  check("splits after a footnote marker", rf[0] === "They build long-term relationships with their customers.1" && rf[1].startsWith("Yet if"), rf);
+  check("does not split section numbers", rf.some((s) => s.startsWith("See section 3.1 The end")), rf);
+  const o = "Firms build relationships with their customers) Yet if the press (Smith 2001) Some say is right, it works.";
+  const ro = splitSentences(o).map(([a, b]) => o.slice(a, b));
+  check("OCR ')' for '.1' ends a sentence, matched parentheses do not", ro.length === 2 && ro[0].endsWith("customers)") && ro[1].includes("(Smith 2001) Some say"), ro);
 }
 
 function cleanTest() {
@@ -113,6 +121,7 @@ async function fixtureTest() {
   const size = JSON.stringify(m).length;
   const firstSid = m.order[0];
   check("sentence ids are page.n", /^\d+\.\d+$/.test(firstSid), firstSid);
+  boxesTest("two-column fixture", m);
   console.log(`  model: ${all.length} sentences, ${(size / 1024).toFixed(0)} KB`);
 }
 
@@ -173,6 +182,24 @@ function linesTest(name: string, m: DocModel) {
   check(`${name}: left and right columns detected`, cols.has("L") && cols.has("R"), [...cols]);
 }
 
+/** Translated boxes never overlap on any page (an overlapping box hides its neighbour's text). */
+function boxesTest(name: string, m: DocModel) {
+  let bad = 0;
+  let raw = 0;
+  const where: string[] = [];
+  for (const pg of m.pages) {
+    const blocks = pg.blocks.filter((b) => b.kind !== "skip");
+    const boxes = layoutBoxes(blocks, undefined, pg.w, pg.h);
+    const left = overlappingBoxes(boxes);
+    raw += overlappingBoxes(new Map(blocks.map((b) => [b.id, b.r]))).length;
+    if (left.length) {
+      bad += left.length;
+      where.push(`p${pg.i + 1}: ${left.slice(0, 2).map((x) => x.join("×")).join(", ")}`);
+    }
+  }
+  check(`${name}: translated boxes never overlap on any page (${raw} raw overlaps resolved)`, bad === 0, where.slice(0, 4));
+}
+
 async function extraFixtures() {
   const dir = "tests/fixtures";
   if (!existsSync(dir)) return;
@@ -183,6 +210,7 @@ async function extraFixtures() {
     const cjkSpace = m.order.filter((id) => m.sentences[id].kind === "para" && /[\u4e00-\u9fff] [\u4e00-\u9fff]/.test(m.sentences[id].text)).length;
     check(`${f}: no spaces between CJK characters`, cjkSpace === 0, cjkSpace);
     REAL[f]?.(m);
+    boxesTest(f, m);
     if (f !== "zh-note.pdf") linesTest(f, m);
     const kinds: Record<string, number> = {};
     for (const id of m.order) kinds[m.sentences[id].kind] = (kinds[m.sentences[id].kind] ?? 0) + 1;

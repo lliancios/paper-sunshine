@@ -41,7 +41,7 @@ export function ReaderView({ paperId }: { paperId: string }) {
       // Parsed by an older engine and kept (annotations or sync): say how to get the new layout (tables).
       setTimeout(async () => {
         const cur = (await db.models.get(paperId))?.model;
-        if (cur && (cur.ev ?? 1) < ENGINE_VERSION) toast("這篇是用舊版解析的，表格可能擠在一起。要更新可到工具列的 ⓘ 論文資訊，按「用新版解析重跑」。");
+        if (cur && (cur.ev ?? 1) < ENGINE_VERSION) toast("這篇是用舊版解析的，表格和掃描檔的斷句可能不準。要更新可到工具列的 ⓘ 論文資訊，按「用新版解析重跑」。");
       }, 1500);
     })();
     useReader.getState().set({

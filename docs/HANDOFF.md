@@ -1,6 +1,6 @@
 # Handoff: continuing Paper Sunshine in Claude Code
 
-Last updated 2026-09-27 (v0.6.2). Read `CLAUDE.md` first; it holds the invariants.
+Last updated 2026-09-29 (v0.6.3). Read `CLAUDE.md` first; it holds the invariants.
 
 ## Where things stand
 
@@ -18,6 +18,7 @@ Deployed on Vercel from `main` (every push deploys; bumping `package.json` versi
 | v0.6.0 | Zotero: import collections via Web API (`/api/zotero` proxy, key in localStorage only), triage mode (summary first, translate on open), conclusions in library rows, save highlights + summary back as a child note |
 | v0.6.1 | "New version" banner works without Vercel system env vars (build timestamp); production sync wired to Supabase |
 | v0.6.2 | Scanned PDFs render (pdf.js wasm decoders), echoed English stripped from translations (and repaired in stored ones), table cells parsed as separate units (ENGINE_VERSION 3), translated layer covers the real ink on scans, 「補翻」 for missing sentences |
+| v0.6.3 | Translated boxes never overlap (`src/engine/boxes.ts`), scanned pages re-fitted to their ink on first view (`src/lib/inkFit.ts`), drop caps and footnote markers split sentences correctly (ENGINE_VERSION 4), all-pages overlap check |
 
 ## Open items, in priority order
 
@@ -37,6 +38,8 @@ npm run build && MOCK_STYLE=zh npx next start -p 3100    # demo mode without AI 
 ```
 
 Browser checks: see `tests/e2e/README.md` (reader, ink, one-pager focus, offline, sync between two browser profiles, diagnostics).
+
+Before any release touching layout, parsing or the reader: `npm test` (checks translated boxes on every page of every fixture) and `tests/e2e/overlap-all-pages.mjs` on every local fixture PDF (`EXPECT_FIT=0` for born-digital, `EXPECT_FIT=1` for `cc.pdf`). The owner's complaint was that fixes held only for the page in the screenshot; never tune on one page.
 
 Release checklist: bump `package.json` + `src/lib/version.ts`, add a `CHANGELOG.md` section (Traditional Chinese), update README if user-facing, commit, push `main`. The GitHub Action creates the tag and release.
 

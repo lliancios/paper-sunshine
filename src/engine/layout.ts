@@ -1,4 +1,4 @@
-import { charBoundaries } from "./charwidth";
+import { charBoundaries, charWidth } from "./charwidth";
 import { splitSentences } from "./sentences";
 import type { Block, BlockKind, DocModel, PageInfo, Piece, RawItem, Rect, Sentence } from "./types";
 
@@ -59,7 +59,7 @@ const TABLE_CAPTION_RE = /^(table|tab\.)\s*[\dA-Z]/i;
 const BULLET_RE = /^[•●▪■◦‣]/;
 
 /** Bumped when parsing changes; papers parsed by an older engine can be re-parsed. */
-export const ENGINE_VERSION = 3;
+export const ENGINE_VERSION = 4;
 const LETTER = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ぀-ヿ一-鿿가-힯]/g;
 
 function mode(values: [number, number][]): number {
@@ -83,6 +83,53 @@ function modeStr(values: [string, number][]): string {
 
 const round05 = (x: number) => Math.round(x * 2) / 2;
 const isCjk = (c: string) => /[\u2e80-\u9fff\uff00-\uffef\u3000-\u303f]/.test(c);
+
+// ------------------------------------------------------------ drop caps ----
+
+const cwOf = (s: string) => {
+  let t = 0;
+  for (const c of s) t += charWidth(c);
+  return t;
+};
+
+/**
+ * OCR layers (JSTOR scans) put a drop cap and the rest of its line in one text
+ * run at the drop cap's size ("C mantras of today. In their ..."), which turns
+ * the line into a heading and splits the paragraph. Shrinks such a run to the
+ * body size and moves the letter to the start of the paragraph ("ustomer" → "Customer").
+ */
+function fixDropCaps(page: RawPage): RawPage {
+  const sizes: [number, number][] = page.items.map((it) => [round05(it.fs), it.str.length]);
+  const pageFs = mode(sizes) || 10;
+  let items: RawItem[] | null = null;
+  page.items.forEach((it, idx) => {
+    const m = /^([A-Z])\s+(?=\p{Ll})/u.exec(it.str);
+    if (!m || it.fs < 1.5 * pageFs || it.str.length < 12) return;
+    const eff = it.w / Math.max(1, cwOf(it.str));
+    if (eff > 0.75 * it.fs) return; // really set large: a heading, not a drop cap
+    items ??= page.items.map((x) => ({ ...x }));
+    const fs = Math.min(1.15 * pageFs, Math.max(0.85 * pageFs, eff));
+    const cur = items[idx];
+    // The paragraph's first line: just above, to the right of the letter, starting in lower case.
+    const first = items
+      .filter((o) => o !== cur && o.base < cur.base - 0.5 * fs && o.base > cur.base - 4 * fs && o.x > cur.x && /^\p{Ll}/u.test(o.str))
+      .sort((a, b) => a.base - b.base || a.x - b.x)[0];
+    if (first) {
+      const cut = cwOf(m[0]) / cwOf(cur.str);
+      cur.x += cur.w * cut;
+      cur.w *= 1 - cut;
+      cur.str = cur.str.slice(m[0].length);
+      const lw = first.fs * charWidth(m[1]);
+      first.str = m[1] + first.str;
+      first.x -= lw;
+      first.w += lw;
+    }
+    cur.fs = fs;
+    cur.y = cur.base - 0.8 * fs;
+    cur.h = fs;
+  });
+  return items ? { ...page, items } : page;
+}
 
 // ---------------------------------------------------------------- lines ----
 
@@ -455,6 +502,7 @@ function orderColumns(blocks: WBlock[], W: number): WBlock[] {
 // ------------------------------------------------------------ builder ----
 
 export function buildDocModel(pages: RawPage[], meta: { pdfTitle?: string; extraText?: string } = {}): DocModel {
+  pages = pages.map(fixDropCaps);
   // 1. lines & blocks per page
   const pageLines = pages.map((pg, i) => buildLines(pg, i));
   const allLines = pageLines.flat();

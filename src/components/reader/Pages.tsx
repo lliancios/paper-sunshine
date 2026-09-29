@@ -7,6 +7,7 @@
 import { ChevronLeft, ChevronRight, MapPin, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Side } from "@/engine/types";
+import { fitPageToInk } from "@/lib/inkFit";
 import { type InkSpan, acquireRender, blit, inkSpans, samplePaperColors } from "@/lib/pdf";
 import { setFocus } from "@/lib/pipeline";
 import { useReader } from "@/store/reader";
@@ -194,6 +195,7 @@ const PageBox = memo(function PageBox({ index, scale, side }: { index: number; s
     void r.promise.then((off) => {
       if (!off || !alive) return r.release();
       blit(off, canvasRef.current);
+      if (!page.inkFit) void fitPageToInk(paperId, index, off).catch(() => {});
       if (side === "tgt") {
         const blocks = page.blocks.filter((b) => b.kind !== "skip").map((b) => ({ id: b.id, r: b.r }));
         setColors(samplePaperColors(off, blocks, off.width / page.w));

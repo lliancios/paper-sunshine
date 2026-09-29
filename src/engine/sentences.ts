@@ -38,7 +38,24 @@ export function splitSentences(text: string): [number, number][] {
       i = j - 1;
       continue;
     }
+    // OCR reads ".1" (full stop + footnote) as ")": an unmatched ")" after a word, then a capital, ends the sentence.
+    if (c === ")" && /[a-z]{3}$/.test(text.slice(Math.max(0, i - 3), i)) && /^\s+[A-Z][a-z]/.test(text.slice(i + 1, i + 4))) {
+      const seg = text.slice(cuts.length ? cuts[cuts.length - 1] : 0, i);
+      if ((seg.match(/\(/g) ?? []).length <= (seg.match(/\)/g) ?? []).length) {
+        cuts.push(i + 1);
+        continue;
+      }
+    }
     if (c !== "." && c !== "?" && c !== "!") continue;
+    // Footnote marker after the full stop: "their customers.1 Yet if ..." (the number stays with the sentence).
+    if (i > 0 && /[a-z)\]”’"']/.test(text[i - 1]) && !(c === "." && ABBREVIATIONS.has(wordBefore(text, i).toLowerCase()))) {
+      const m = /^(\d{1,2})\s+(?=[A-Z“"(])/.exec(text.slice(i + 1, i + 8));
+      if (m) {
+        cuts.push(i + 1 + m[1].length);
+        i += m[1].length;
+        continue;
+      }
+    }
     // Skip decimal numbers and ellipses inside words.
     if (c === "." && i + 1 < n && /[0-9A-Za-z]/.test(text[i + 1])) continue;
     let j = i + 1;

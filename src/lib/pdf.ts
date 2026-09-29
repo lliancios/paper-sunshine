@@ -2,7 +2,10 @@
 // pdf.js loading and page rendering (browser only). Uses the legacy build for
 // broader Safari/iPadOS support; the worker and fonts are served from /public.
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
+import type { InkSpan } from "@/engine/boxes";
 import { db } from "./db";
+
+export type { InkSpan };
 
 type PdfJs = typeof import("pdfjs-dist");
 let pdfjsPromise: Promise<PdfJs> | null = null;
@@ -201,7 +204,6 @@ export function samplePaperColors(canvas: HTMLCanvasElement, rects: { id: string
   return out;
 }
 
-export type InkSpan = { l: number; r: number };
 
 /**
  * Where the printed text of each block really starts and ends (page units).
